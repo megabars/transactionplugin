@@ -5,127 +5,95 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.implementation.bytecode.assign.Assigner;
 import net.bytebuddy.matcher.ElementMatchers;
-import net.bytebuddy.utility.JavaModule;
-
-import java.security.ProtectionDomain;
 
 /**
- * Byte Buddy advice classes for intercepting Spring TX and JDBC.
+ * Byte Buddy advice classes.
  *
- * Each inner class is a stateless advice — Byte Buddy inlines the
- * {@code @Advice.OnMethodEnter} / {@code @Advice.OnMethodExit} code directly
- * into the target method's bytecode.
+ * Key design decisions:
+ * 1. Transaction lifecycle is tracked via invokeWithinTransaction enter/exit
+ *    (no need to hook into doCommit/doRollback which are abstract methods).
+ * 2. SQL is tracked via PreparedStatement/Statement interception.
+ * 3. Hibernate entity counts via SessionFactory advice.
  */
 public class TransactionInstrumentation {
 
     // =========================================================================
-    // 1. TransactionAspectSupport.invokeWithinTransaction — captures method info
+    // 1. TransactionAspectSupport.invokeWithinTransaction
+    //    Signature: invokeWithinTransaction(Method method, Class<?> targetClass,
+    //                                        InvocationCallback invocation)
+    //    arg0 = Method, arg1 = Class<?>, arg2 = InvocationCallback
     // =========================================================================
 
-    public static class InvokeWithinTransactionAdvice {
+    public static class InvokeWithinTransactionEnterAdvice {
 
         @Advice.OnMethodEnter
         public static void onEnter(
-                @Advice.Argument(value = 1, typing = Assigner.Typing.DYNAMIC) Object method,
-                @Advice.Argument(value = 2, typing = Assigner.Typing.DYNAMIC) Object targetClass) {
-
+                @Advice.Argument(value = 0, typing = Assigner.Typing.DYNAMIC) Object method,
+                @Advice.Argument(value = 1, typing = Assigner.Typing.DYNAMIC) Object targetClass) {
             try {
+                TransactionContext ctx = TransactionContext.push();
+
                 if (method instanceof java.lang.reflect.Method) {
                     java.lang.reflect.Method m = (java.lang.reflect.Method) method;
-                    TransactionContext ctx = new TransactionContext();
+                    ctx.methodName = m.getName();
+
                     if (targetClass instanceof Class) {
                         ctx.className = ((Class<?>) targetClass).getName();
                     } else {
                         ctx.className = m.getDeclaringClass().getName();
                     }
-                    ctx.methodName = m.getName();
 
-                    // Attempt to read @Transactional annotation metadata
-                    org.springframework.transaction.annotation.Transactional tx =
-                            m.getAnnotation(org.springframework.transaction.annotation.Transactional.class);
-                    if (tx == null) {
-                        Class<?> declaring = m.getDeclaringClass();
-                        tx = declaring.getAnnotation(org.springframework.transaction.annotation.Transactional.class);
-                    }
-                    if (tx != null) {
-                        ctx.propagation = tx.propagation().name();
-                        ctx.isolationLevel = tx.isolation().name();
-                        ctx.readOnly = tx.readOnly();
-                        ctx.timeout = tx.timeout();
-                    }
-
-                    // Snapshot Hibernate counters before the transaction body runs
-                    ctx.insertCountBefore = HibernateStatsCollector.getInsertCount();
-                    ctx.updateCountBefore = HibernateStatsCollector.getUpdateCount();
-                    ctx.deleteCountBefore = HibernateStatsCollector.getDeleteCount();
-
-                    TransactionContext.set(ctx);
+                    // Read @Transactional metadata
+                    try {
+                        org.springframework.transaction.annotation.Transactional tx =
+                                m.getAnnotation(org.springframework.transaction.annotation.Transactional.class);
+                        if (tx == null && targetClass instanceof Class) {
+                            tx = ((Class<?>) targetClass).getAnnotation(
+                                    org.springframework.transaction.annotation.Transactional.class);
+                        }
+                        if (tx != null) {
+                            ctx.propagation    = tx.propagation().name();
+                            ctx.isolationLevel = tx.isolation().name();
+                            ctx.readOnly       = tx.readOnly();
+                            ctx.timeout        = tx.timeout();
+                        }
+                    } catch (Throwable ignored) { }
                 }
+
+                // Snapshot Hibernate counters at transaction start
+                ctx.insertCountBefore = HibernateStatsCollector.getInsertCount();
+                ctx.updateCountBefore = HibernateStatsCollector.getUpdateCount();
+                ctx.deleteCountBefore = HibernateStatsCollector.getDeleteCount();
+
             } catch (Throwable ignored) { }
         }
+    }
+
+    public static class InvokeWithinTransactionExitAdvice {
 
         @Advice.OnMethodExit(onThrowable = Throwable.class)
         public static void onExit(@Advice.Thrown Throwable thrown) {
             try {
-                TransactionContext ctx = TransactionContext.current();
-                if (ctx != null && thrown != null) {
-                    ctx.exception = thrown;
-                }
-                // Actual record creation happens in doCommit / doRollback advice
+                TransactionContext ctx = TransactionContext.pop();
+                if (ctx == null) return;
+
+                if (thrown != null) ctx.exception = thrown;
+
+                String status = (thrown == null) ? "COMMITTED" : "ROLLED_BACK";
+
+                TransactionRecord record = ctx.toRecord(
+                        status,
+                        HibernateStatsCollector.getInsertCount(),
+                        HibernateStatsCollector.getUpdateCount(),
+                        HibernateStatsCollector.getDeleteCount()
+                );
+                SocketReporter.send(record);
             } catch (Throwable ignored) { }
         }
     }
 
     // =========================================================================
-    // 2. AbstractPlatformTransactionManager.doCommit
-    // =========================================================================
-
-    public static class DoCommitAdvice {
-
-        @Advice.OnMethodExit
-        public static void onExit() {
-            try {
-                TransactionContext ctx = TransactionContext.current();
-                if (ctx != null) {
-                    TransactionRecord record = ctx.toRecord(
-                            "COMMITTED",
-                            HibernateStatsCollector.getInsertCount(),
-                            HibernateStatsCollector.getUpdateCount(),
-                            HibernateStatsCollector.getDeleteCount()
-                    );
-                    SocketReporter.send(record);
-                    TransactionContext.clear();
-                }
-            } catch (Throwable ignored) { }
-        }
-    }
-
-    // =========================================================================
-    // 3. AbstractPlatformTransactionManager.doRollback
-    // =========================================================================
-
-    public static class DoRollbackAdvice {
-
-        @Advice.OnMethodExit(onThrowable = Throwable.class)
-        public static void onExit() {
-            try {
-                TransactionContext ctx = TransactionContext.current();
-                if (ctx != null) {
-                    TransactionRecord record = ctx.toRecord(
-                            "ROLLED_BACK",
-                            HibernateStatsCollector.getInsertCount(),
-                            HibernateStatsCollector.getUpdateCount(),
-                            HibernateStatsCollector.getDeleteCount()
-                    );
-                    SocketReporter.send(record);
-                    TransactionContext.clear();
-                }
-            } catch (Throwable ignored) { }
-        }
-    }
-
-    // =========================================================================
-    // 4. Connection.prepareStatement — capture SQL for PreparedStatement
+    // 2. Connection.prepareStatement — capture SQL for PreparedStatement
     // =========================================================================
 
     public static class PrepareStatementAdvice {
@@ -139,7 +107,7 @@ public class TransactionInstrumentation {
     }
 
     // =========================================================================
-    // 5. PreparedStatement.execute / executeUpdate / executeQuery
+    // 3. PreparedStatement.execute / executeUpdate / executeQuery (no-arg)
     // =========================================================================
 
     public static class PreparedExecuteAdvice {
@@ -147,14 +115,13 @@ public class TransactionInstrumentation {
         @Advice.OnMethodEnter
         public static void onEnter() {
             try {
-                String sql = SqlInterceptor.getPreparedSql();
-                SqlInterceptor.onPreparedExecute(sql);
+                SqlInterceptor.onPreparedExecute(SqlInterceptor.getPreparedSql());
             } catch (Throwable ignored) { }
         }
     }
 
     // =========================================================================
-    // 6. Statement.execute(String) / executeUpdate(String) / executeQuery(String)
+    // 4. Statement.execute(String) / executeUpdate(String) / executeQuery(String)
     // =========================================================================
 
     public static class StatementExecuteAdvice {
@@ -168,7 +135,7 @@ public class TransactionInstrumentation {
     }
 
     // =========================================================================
-    // 7. Statement.executeBatch
+    // 5. executeBatch
     // =========================================================================
 
     public static class BatchExecuteAdvice {
@@ -182,7 +149,7 @@ public class TransactionInstrumentation {
     }
 
     // =========================================================================
-    // 8. SessionFactory creation — register Hibernate stats collector
+    // 6. SessionFactory creation — register Hibernate stats
     // =========================================================================
 
     public static class SessionFactoryAdvice {
@@ -190,15 +157,13 @@ public class TransactionInstrumentation {
         @Advice.OnMethodExit
         public static void onExit(@Advice.Return(typing = Assigner.Typing.DYNAMIC) Object result) {
             try {
-                if (result != null) {
-                    HibernateStatsCollector.setSessionFactory(result);
-                }
+                if (result != null) HibernateStatsCollector.setSessionFactory(result);
             } catch (Throwable ignored) { }
         }
     }
 
     // =========================================================================
-    // Byte Buddy transformer — wires advice to target classes
+    // Transformer — wires advice to target classes/methods
     // =========================================================================
 
     public static net.bytebuddy.agent.builder.AgentBuilder.Transformer buildTransformer() {
@@ -206,38 +171,42 @@ public class TransactionInstrumentation {
                 applyAdvice(builder, typeDescription);
     }
 
-    @SuppressWarnings("deprecation")
     private static DynamicType.Builder<?> applyAdvice(
             DynamicType.Builder<?> builder,
             TypeDescription type) {
 
         String name = type.getName();
 
+        // Spring TX aspect — invokeWithinTransaction uses two separate advice classes
+        // because Byte Buddy requires split enter/exit when both are present
         if (name.equals("org.springframework.transaction.interceptor.TransactionAspectSupport")) {
-            builder = builder.visit(Advice.to(InvokeWithinTransactionAdvice.class)
-                    .on(ElementMatchers.named("invokeWithinTransaction")));
-        }
-
-        if (name.equals("org.springframework.transaction.support.AbstractPlatformTransactionManager")) {
             builder = builder
-                    .visit(Advice.to(DoCommitAdvice.class).on(ElementMatchers.named("doCommit")))
-                    .visit(Advice.to(DoRollbackAdvice.class).on(ElementMatchers.named("doRollback")));
+                    .visit(Advice.to(InvokeWithinTransactionEnterAdvice.class)
+                            .on(ElementMatchers.named("invokeWithinTransaction")))
+                    .visit(Advice.to(InvokeWithinTransactionExitAdvice.class)
+                            .on(ElementMatchers.named("invokeWithinTransaction")));
         }
 
-        if (name.equals("org.hibernate.engine.jdbc.internal.JdbcServicesImpl")
-                || name.endsWith("SessionFactoryImpl")) {
+        // Hibernate SessionFactory (detect SessionFactoryImpl construction)
+        if (name.endsWith("SessionFactoryImpl") || name.endsWith("JdbcServicesImpl")) {
             builder = builder.visit(Advice.to(SessionFactoryAdvice.class)
                     .on(ElementMatchers.isConstructor()));
         }
 
-        // JDBC interception — target java.sql.* implementations
-        if (implementsJdbcConnection(name)) {
+        // JDBC — Connection implementations (for prepareStatement SQL capture)
+        if (!name.startsWith("java.") && !name.startsWith("javax.")
+                && name.contains("Connection")
+                && !name.contains("ConnectionPool")
+                && !name.contains("ConnectionManager")
+                && !name.contains("AbstractConnection")) {
             builder = builder.visit(Advice.to(PrepareStatementAdvice.class)
                     .on(ElementMatchers.named("prepareStatement")
                             .and(ElementMatchers.takesArgument(0, String.class))));
         }
 
-        if (implementsJdbcPreparedStatement(name)) {
+        // JDBC — PreparedStatement implementations
+        if (!name.startsWith("java.") && !name.startsWith("javax.")
+                && name.contains("PreparedStatement")) {
             builder = builder
                     .visit(Advice.to(PreparedExecuteAdvice.class)
                             .on(ElementMatchers.namedOneOf("execute", "executeUpdate", "executeQuery")
@@ -246,26 +215,16 @@ public class TransactionInstrumentation {
                             .on(ElementMatchers.named("executeBatch")));
         }
 
-        if (implementsJdbcStatement(name)) {
-            builder = builder
-                    .visit(Advice.to(StatementExecuteAdvice.class)
-                            .on(ElementMatchers.namedOneOf("execute", "executeUpdate", "executeQuery")
-                                    .and(ElementMatchers.takesArgument(0, String.class))));
+        // JDBC — plain Statement implementations
+        if (!name.startsWith("java.") && !name.startsWith("javax.")
+                && name.contains("Statement")
+                && !name.contains("PreparedStatement")
+                && !name.contains("CallableStatement")) {
+            builder = builder.visit(Advice.to(StatementExecuteAdvice.class)
+                    .on(ElementMatchers.namedOneOf("execute", "executeUpdate", "executeQuery")
+                            .and(ElementMatchers.takesArgument(0, String.class))));
         }
 
         return builder;
-    }
-
-    private static boolean implementsJdbcConnection(String name) {
-        return name.contains("Connection") && !name.startsWith("java.");
-    }
-
-    private static boolean implementsJdbcPreparedStatement(String name) {
-        return name.contains("PreparedStatement") && !name.startsWith("java.");
-    }
-
-    private static boolean implementsJdbcStatement(String name) {
-        return (name.contains("Statement") && !name.contains("Prepared"))
-                && !name.startsWith("java.");
     }
 }

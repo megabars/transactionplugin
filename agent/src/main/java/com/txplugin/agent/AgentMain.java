@@ -3,78 +3,111 @@ package com.txplugin.agent;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.matcher.ElementMatchers;
 
+import java.io.File;
 import java.lang.instrument.Instrumentation;
+import java.util.jar.JarFile;
 import java.util.logging.Logger;
 
 /**
  * Java Agent entry point.
  *
- * Loaded by the IntelliJ plugin via Attach API:
- *   VirtualMachine.attach(pid).loadAgent(agentJarPath, "port=PORT")
- *
- * Or added to JVM args: -javaagent:/path/to/transaction-agent.jar=port=PORT
- *
- * Agent arguments format: "port=12345"
+ * Added to JVM args by SpringBootRunConfigurationExtension:
+ *   -javaagent:/path/to/transaction-agent.jar=port=PORT
  */
 public class AgentMain {
 
     private static final Logger LOG = Logger.getLogger(AgentMain.class.getName());
 
-    /** Called when agent is specified via -javaagent flag at JVM startup */
     public static void premain(String agentArgs, Instrumentation instrumentation) {
         install(agentArgs, instrumentation);
     }
 
-    /** Called when agent is dynamically attached to a running JVM */
     public static void agentmain(String agentArgs, Instrumentation instrumentation) {
         install(agentArgs, instrumentation);
     }
 
     private static void install(String agentArgs, Instrumentation instrumentation) {
         int port = parsePort(agentArgs);
-        LOG.info("[TransactionAgent] Installing, plugin port=" + port);
+        LOG.info("[TransactionAgent] Installing, reporting to plugin on port=" + port);
 
-        // Start the reporter (connects to the plugin's TCP server)
+        // ── Critical: inject agent classes into bootstrap classloader ────────
+        // Spring Boot uses LaunchedURLClassLoader which cannot see agent classes.
+        // By adding the agent JAR to the bootstrap CL, our helper classes
+        // (TransactionContext, SqlInterceptor, etc.) become visible to all
+        // classloaders, so Byte Buddy's inlined advice bytecode can call them.
+        injectIntoBootstrap(instrumentation);
+
+        // ── Start reporter (connects to plugin's TCP server) ─────────────────
         SocketReporter.init(port);
 
-        // Install Byte Buddy transformations
+        // ── Install Byte Buddy transformations ───────────────────────────────
+        // Default AgentBuilder uses TypeStrategy.DECORATE (intercept at load time)
+        // and RedefinitionStrategy.DISABLED — correct for -javaagent startup.
         new AgentBuilder.Default()
-                // Don't instrument JDK internals or the agent itself
+                .disableClassFormatChanges()
+                // Don't instrument JDK / Byte Buddy / agent itself
                 .ignore(ElementMatchers.nameStartsWith("java.")
                         .or(ElementMatchers.nameStartsWith("javax."))
                         .or(ElementMatchers.nameStartsWith("sun."))
                         .or(ElementMatchers.nameStartsWith("com.sun."))
+                        .or(ElementMatchers.nameStartsWith("jdk."))
                         .or(ElementMatchers.nameStartsWith("net.bytebuddy."))
                         .or(ElementMatchers.nameStartsWith("com.txplugin.agent.")))
 
-                // Target: Spring TX classes + JDBC implementations
-                .type(ElementMatchers.nameContains("TransactionAspectSupport")
-                        .or(ElementMatchers.nameContains("AbstractPlatformTransactionManager"))
-                        .or(ElementMatchers.nameContains("SessionFactoryImpl"))
-                        .or(ElementMatchers.nameContains("JdbcServicesImpl"))
-                        // JDBC connection/statement implementations from common pools/drivers
+                // Match Spring TX aspect + Hibernate + JDBC implementations
+                .type(
+                        ElementMatchers.nameContains("TransactionAspectSupport")
+                        .or(ElementMatchers.nameEndsWith("SessionFactoryImpl"))
+                        .or(ElementMatchers.nameEndsWith("JdbcServicesImpl"))
                         .or(ElementMatchers.nameContains("PreparedStatement")
-                                .and(ElementMatchers.not(ElementMatchers.nameStartsWith("java."))))
-                        .or(ElementMatchers.nameContains("Connection")
                                 .and(ElementMatchers.not(ElementMatchers.nameStartsWith("java.")))
                                 .and(ElementMatchers.not(ElementMatchers.nameStartsWith("javax."))))
+                        .or(ElementMatchers.nameContains("Connection")
+                                .and(ElementMatchers.not(ElementMatchers.nameStartsWith("java.")))
+                                .and(ElementMatchers.not(ElementMatchers.nameStartsWith("javax.")))
+                                .and(ElementMatchers.not(ElementMatchers.nameContains("Pool")))
+                                .and(ElementMatchers.not(ElementMatchers.nameContains("Manager"))))
+                        .or(ElementMatchers.nameContains("Statement")
+                                .and(ElementMatchers.not(ElementMatchers.nameStartsWith("java.")))
+                                .and(ElementMatchers.not(ElementMatchers.nameStartsWith("javax.")))
+                                .and(ElementMatchers.not(ElementMatchers.nameContains("Prepared")))
+                                .and(ElementMatchers.not(ElementMatchers.nameContains("Callable"))))
                 )
                 .transform(TransactionInstrumentation.buildTransformer())
-                .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
-                .with(AgentBuilder.TypeStrategy.Default.REDEFINE)
+                .with(AgentBuilder.Listener.StreamWriting.toSystemError()
+                        .withTransformationsOnly())  // log only successful transforms
                 .installOn(instrumentation);
 
         LOG.info("[TransactionAgent] Installed successfully");
     }
 
+    private static void injectIntoBootstrap(Instrumentation instrumentation) {
+        try {
+            // Get the path to this agent JAR (the fat JAR containing all agent classes)
+            File agentJar = new File(
+                    AgentMain.class.getProtectionDomain()
+                            .getCodeSource()
+                            .getLocation()
+                            .toURI()
+            );
+            if (agentJar.exists() && agentJar.getName().endsWith(".jar")) {
+                instrumentation.appendToBootstrapClassLoaderSearch(new JarFile(agentJar));
+                LOG.info("[TransactionAgent] Injected into bootstrap classloader: " + agentJar);
+            } else {
+                LOG.warning("[TransactionAgent] Could not locate agent JAR for bootstrap injection: " + agentJar);
+            }
+        } catch (Exception e) {
+            LOG.warning("[TransactionAgent] Bootstrap injection failed: " + e.getMessage());
+        }
+    }
+
     private static int parsePort(String args) {
-        if (args == null || args.isEmpty()) return 17321; // default port
+        if (args == null || args.isEmpty()) return 17321;
         for (String part : args.split(",")) {
             part = part.trim();
             if (part.startsWith("port=")) {
-                try {
-                    return Integer.parseInt(part.substring(5).trim());
-                } catch (NumberFormatException ignored) { }
+                try { return Integer.parseInt(part.substring(5).trim()); }
+                catch (NumberFormatException ignored) { }
             }
         }
         return 17321;
