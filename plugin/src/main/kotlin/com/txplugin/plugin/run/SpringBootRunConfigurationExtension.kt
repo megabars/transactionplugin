@@ -1,94 +1,65 @@
 package com.txplugin.plugin.run
 
-import com.intellij.execution.JavaTestConfigurationBase
 import com.intellij.execution.configurations.JavaParameters
 import com.intellij.execution.configurations.RunConfigurationBase
 import com.intellij.execution.configurations.RunnerSettings
-import com.intellij.execution.process.ProcessEvent
-import com.intellij.execution.process.ProcessHandler
-import com.intellij.execution.process.ProcessListener
 import com.intellij.openapi.diagnostic.thisLogger
+import com.txplugin.plugin.store.TransactionStore
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
- * Hooks into every Run Configuration. When a process starts, we wait for its
- * PID (available after the process is up) and attach the Java Agent.
+ * Adds the transaction agent as a -javaagent JVM argument before the process starts.
+ * This is the standard, reliable instrumentation approach (same as JaCoCo, JRebel).
  *
- * We detect "Spring Boot applications" heuristically: any Java/Kotlin run
- * config that has spring-core on the classpath. If we accidentally attach to a
- * non-Spring process the agent's Byte Buddy matchers simply find nothing to
- * instrument and the overhead is negligible.
+ * updateJavaParameters() is called by IntelliJ for every run configuration that
+ * implements CommonJavaRunConfigurationParameters (Spring Boot, plain Java, Kotlin, etc.).
  */
-class SpringBootRunConfigurationExtension :
-    com.intellij.execution.RunConfigurationExtension() {
+class SpringBootRunConfigurationExtension : com.intellij.execution.RunConfigurationExtension() {
 
     private val log = thisLogger()
 
-    // Required abstract method — no JVM args modification needed (agent attached post-start)
+    @Volatile private var agentJarPath: String? = null
+
+    override fun isApplicableFor(configuration: RunConfigurationBase<*>): Boolean = true
+
     override fun <T : RunConfigurationBase<*>> updateJavaParameters(
-        configuration: T, params: JavaParameters, runnerSettings: RunnerSettings?
-    ) {}
-
-    override fun isApplicableFor(configuration: RunConfigurationBase<*>): Boolean {
-        // Apply to all Java-based configurations
-        val configClass = configuration.javaClass.name
-        return configClass.contains("Application") ||
-               configClass.contains("JavaRunConfiguration") ||
-               configClass.contains("SpringBoot") ||
-               isJavaConfiguration(configuration)
-    }
-
-    private fun isJavaConfiguration(config: RunConfigurationBase<*>): Boolean {
-        return try {
-            config.javaClass.interfaces.any { iface ->
-                iface.name.contains("CommonJavaRunConfigurationParameters") ||
-                iface.name.contains("JavaRunConfiguration")
-            }
-        } catch (_: Exception) { false }
-    }
-
-    override fun attachToProcess(
-        configuration: RunConfigurationBase<*>,
-        handler: ProcessHandler,
+        configuration: T,
+        params: JavaParameters,
         runnerSettings: RunnerSettings?
     ) {
-        handler.addProcessListener(object : ProcessListener {
-            override fun startNotified(event: ProcessEvent) {
-                scheduleAttach(configuration, handler)
-            }
-            override fun processTerminated(event: ProcessEvent) {}
-            override fun onTextAvailable(event: ProcessEvent, outputType: com.intellij.openapi.util.Key<*>) {}
-        })
+        val agentJar = getOrExtractAgentJar() ?: run {
+            log.warn("TransactionPlugin: agent JAR not found in plugin resources — hints will not work")
+            return
+        }
+        val port = TransactionStore.getInstance().port
+        val agentArg = "-javaagent:$agentJar=port=$port"
+
+        // Avoid adding twice (e.g. if configuration is reused)
+        if (params.vmParametersList.parameters.none { it.startsWith("-javaagent:$agentJar") }) {
+            params.vmParametersList.add(agentArg)
+            log.info("TransactionPlugin: added $agentArg")
+        }
     }
 
-    private fun scheduleAttach(configuration: RunConfigurationBase<*>, handler: ProcessHandler) {
-        val project = configuration.project
+    private fun getOrExtractAgentJar(): String? {
+        agentJarPath?.let { if (File(it).exists()) return it }
 
-        Thread({
-            // Wait up to 30s for the process to be available and obtain its PID
-            var attempts = 0
-            while (attempts < 60) {
-                val pid = tryGetPid(handler)
-                if (pid != null) {
-                    val attachService = project.getService(AgentAttachService::class.java)
-                    attachService.attachToProcess(pid)
-                    return@Thread
-                }
-                Thread.sleep(500)
-                attempts++
-            }
-            log.warn("TransactionPlugin: could not obtain PID for ${configuration.name}")
-        }, "tx-attach-${configuration.name}").also { it.isDaemon = true }.start()
-    }
-
-    private fun tryGetPid(handler: ProcessHandler): Long? {
+        val resource = javaClass.getResourceAsStream("/agent/transaction-agent.jar") ?: run {
+            log.warn("TransactionPlugin: /agent/transaction-agent.jar not found in classpath")
+            return null
+        }
         return try {
-            // ProcessHandler.getProcess() returns java.lang.Process (JDK 9+)
-            val processField = handler.javaClass.declaredFields
-                .firstOrNull { it.type == Process::class.java || it.name == "myProcess" }
-                ?: return null
-            processField.isAccessible = true
-            val process = processField.get(handler) as? Process ?: return null
-            process.pid()
-        } catch (_: Exception) { null }
+            val tmp = Files.createTempFile("transaction-agent-", ".jar").toFile()
+            tmp.deleteOnExit()
+            resource.use { Files.copy(it, tmp.toPath(), StandardCopyOption.REPLACE_EXISTING) }
+            agentJarPath = tmp.absolutePath
+            log.info("TransactionPlugin: agent extracted to ${tmp.absolutePath}")
+            tmp.absolutePath
+        } catch (e: Exception) {
+            log.warn("TransactionPlugin: failed to extract agent JAR: ${e.message}")
+            null
+        }
     }
 }

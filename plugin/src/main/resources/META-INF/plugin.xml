@@ -38,10 +38,6 @@
         <applicationService
                 serviceImplementation="com.txplugin.plugin.store.TransactionStore"/>
 
-        <!-- Project service: attaches agent to running Spring Boot processes -->
-        <projectService
-                serviceImplementation="com.txplugin.plugin.run.AgentAttachService"/>
-
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">

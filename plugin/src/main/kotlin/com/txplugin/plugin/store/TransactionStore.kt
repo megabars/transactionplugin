@@ -1,8 +1,12 @@
 package com.txplugin.plugin.store
 
 import com.google.gson.Gson
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.psi.PsiManager
 import com.txplugin.plugin.model.TransactionRecord
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -10,7 +14,6 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Application-level service that:
@@ -127,7 +130,21 @@ class TransactionStore {
 
     private fun notifyListeners() {
         ApplicationManager.getApplication().invokeLater {
+            // 1. Notify Tool Window and other UI listeners
             listeners.forEach { it() }
+
+            // 2. Force inlay hints refresh — restart daemon for open Java/Kotlin files
+            ProjectManager.getInstance().openProjects.forEach { project ->
+                if (project.isDisposed) return@forEach
+                val daemon = DaemonCodeAnalyzer.getInstance(project)
+                val psiManager = PsiManager.getInstance(project)
+                FileEditorManager.getInstance(project).openFiles.forEach { vFile ->
+                    if (vFile.extension == "java" || vFile.extension == "kt") {
+                        val psiFile = psiManager.findFile(vFile) ?: return@forEach
+                        daemon.restart(psiFile)
+                    }
+                }
+            }
         }
     }
 
