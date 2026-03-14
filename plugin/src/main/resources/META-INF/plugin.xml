@@ -1,0 +1,53 @@
+<idea-plugin>
+    <id>com.txplugin</id>
+    <name>Transaction Monitor</name>
+    <version>1.0.0</version>
+    <vendor>txplugin</vendor>
+    <description>Real-time Spring Boot transaction monitoring. Shows completed transaction info as
+        inlay hints above @Transactional methods. Connects to running apps via Java Agent (no
+        code changes required).
+    </description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+
+        <!-- Tool Window: transaction history -->
+        <toolWindow
+                id="Transaction Monitor"
+                anchor="right"
+                icon="/icons/transaction.svg"
+                factoryClass="com.txplugin.plugin.ui.TransactionToolWindowFactory"/>
+
+        <!-- Inlay hints above @Transactional methods -->
+        <codeInsight.inlayProvider
+                language="JAVA"
+                implementationClass="com.txplugin.plugin.ui.JavaTransactionInlayHintsProvider"/>
+
+        <codeInsight.inlayProvider
+                language="kotlin"
+                implementationClass="com.txplugin.plugin.ui.KotlinTransactionInlayHintsProvider"/>
+
+        <!-- Notification group for rollback alerts -->
+        <notificationGroup
+                id="TransactionMonitor"
+                displayType="BALLOON"/>
+
+        <!-- Application service: stores transaction data, manages socket server -->
+        <applicationService
+                serviceImplementation="com.txplugin.plugin.store.TransactionStore"/>
+
+        <!-- Project service: attaches agent to running Spring Boot processes -->
+        <projectService
+                serviceImplementation="com.txplugin.plugin.run.AgentAttachService"/>
+
+    </extensions>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Hook into Run Configurations to detect Spring Boot apps -->
+        <runConfigurationExtension
+                implementation="com.txplugin.plugin.run.SpringBootRunConfigurationExtension"/>
+    </extensions>
+
+</idea-plugin>

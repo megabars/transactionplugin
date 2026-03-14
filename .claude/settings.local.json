@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(gradle wrapper:*)",
+      "Bash(/usr/local/bin/gradle --version)",
+      "Bash(brew list:*)",
+      "Read(//opt/homebrew/Cellar/gradle@8/8.14.3_1/bin/**)",
+      "Read(//usr/local/opt/gradle@8/**)",
+      "Bash(/opt/homebrew/opt/gradle@8/bin/gradle wrapper:*)",
+      "Bash(cat:*)",
+      "Bash(./gradlew projects:*)",
+      "Bash(grep -v \"^\\\\-\\\\-\\\\|^$\")",
+      "Bash(./gradlew :agent:compileJava --no-daemon)",
+      "Bash(./gradlew :agent:compileJava --no-daemon --info)",
+      "Bash(grep -v \"^$\")",
+      "Bash(./gradlew :agent:jar --no-daemon)",
+      "Bash(unzip -p /Users/ivanmezencev/Documents/transactionplugin/agent/build/libs/agent-1.0.0.jar META-INF/MANIFEST.MF)",
+      "Bash(./gradlew :plugin:compileKotlin --no-daemon)",
+      "Bash(grep -v \"^$\\\\|Daemon\\\\|honour\\\\|single\")",
+      "Bash(./gradlew :plugin:buildPlugin --no-daemon)",
+      "Bash(grep -v \"^$\\\\|Daemon\\\\|honour\\\\|single\\\\|Download\\\\|^>\")",
+      "Bash(unzip -l /Users/ivanmezencev/Documents/transactionplugin/plugin/build/distributions/*.zip)",
+      "Bash(grep -E \"agent.*jar|plugin.xml|\\\\.jar$\")",
+      "Bash(unzip -p /Users/ivanmezencev/Documents/transactionplugin/plugin/build/distributions/*.zip \"plugin/lib/plugin-1.0.0.jar\")",
+      "Bash(unzip -l /dev/stdin)",
+      "Bash(jar tf:*)",
+      "Bash(gh auth:*)",
+      "Bash(git -C /Users/ivanmezencev/Documents/transactionplugin status)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
