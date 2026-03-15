@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Архитектура
 
 Два Gradle-модуля:
-- `agent/` — Java Agent (fat JAR, Byte Buddy, Java 17)
-- `plugin/` — IntelliJ Plugin (Kotlin, IJ Platform 2023.3+)
+- `agent/` — Java Agent (fat JAR, Byte Buddy 1.14.18, Java 17)
+- `plugin/` — IntelliJ Plugin (Kotlin, IJ Platform 2023.3+, Gson 2.11.0)
 
 IPC: агент → TCP localhost:17321 → плагин (newline-delimited JSON, ручная сериализация без Jackson).
 
@@ -67,15 +67,17 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 ## Ключевые решения
 
-**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321)`; если занят — `ServerSocket(0)` (случайный порт). `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически.
+**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321)`; если занят — `ServerSocket(0)` (случайный порт). `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга.
 
-**Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` — не извлекается заново при каждом запуске.
+**Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking — не извлекается заново при каждом запуске.
 
 **Spring в агенте — `compileOnly`**: `spring-tx`/`spring-context` не входят в fat JAR агента — загружаются из classpath целевого приложения в рантайме.
 
 **Classloader**: `appendToSystemClassLoaderSearch` — НЕ `appendToBootstrapClassLoaderSearch` (вызывает LinkageError из-за дублирования Byte Buddy). Метод называется `injectIntoSystemClassLoader`.
 
-**Без Jackson в агенте**: ручная JSON-сериализация в `SocketReporter.java` — Jackson недоступен через system classloader в Spring Boot fat JAR.
+**Без Jackson в агенте**: ручная JSON-сериализация в `SocketReporter.java` — Jackson недоступен через system classloader в Spring Boot fat JAR. Escape-логика обрабатывает `"`, `\`, `\n`, `\r`, `\t` и unicode < 0x20 (SQL может содержать любые символы). `connectAndStream()` использует peek→flush→poll: запись удаляется из буфера только после успешного `flush()` — при обрыве соединения она остаётся в буфере и отправится после переподключения.
+
+**SqlInterceptor ThreadLocal cleanup**: `getPreparedSql()` вызывает `.remove()` сразу после `.get()` — не случайность. Без этого pooled-потоки увидят SQL от предыдущего PreparedStatement того же потока.
 
 **Byte Buddy advice**: два отдельных класса для enter/exit (требование Byte Buddy). Аргументы `invokeWithinTransaction(Method, Class<?>, InvocationCallback)` — индексы 0 и 1, не 1 и 2. `doCommit`/`doRollback` — абстрактные методы, Byte Buddy их пропускает; статус транзакции определяется через `@Advice.Thrown` в exit advice. `JdbcServicesImpl` **не** перехватывается — только `SessionFactoryImpl`; иначе `unavailable=true` срабатывает раньше, чем создаётся реальный `SessionFactory`.
 

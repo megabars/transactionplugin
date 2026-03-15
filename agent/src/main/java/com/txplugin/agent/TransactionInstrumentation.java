@@ -98,6 +98,27 @@ public class TransactionInstrumentation {
 
                 if (thrown != null) ctx.exception = thrown;
 
+                // Check if this is a nested method participating in an outer transaction.
+                // REQUIRED/SUPPORTS/MANDATORY join an existing TX — no separate DB transaction.
+                // REQUIRES_NEW and NESTED always start a genuinely new TX → report separately.
+                TransactionContext parent = TransactionContext.current();
+                boolean isNewTransaction = "REQUIRES_NEW".equals(ctx.propagation)
+                        || "NESTED".equals(ctx.propagation);
+
+                if (parent != null && !isNewTransaction) {
+                    // Merge inner SQL into parent. The actual DB work (Hibernate flush, batch)
+                    // happens during the outer's commit phase, so the outer record will capture
+                    // Hibernate stats and flush-SQL correctly at its own exit.
+                    parent.sqlQueryCount += ctx.sqlQueryCount;
+                    parent.batchCount    += ctx.batchCount;
+                    for (String sql : ctx.sqlQueries) {
+                        if (parent.sqlQueries.size() < TransactionRecord.MAX_SQL_QUERIES) {
+                            parent.sqlQueries.add(sql);
+                        }
+                    }
+                    return; // No separate record — this method participates in the outer TX
+                }
+
                 String status = (thrown == null) ? "COMMITTED" : "ROLLED_BACK";
 
                 TransactionRecord record = ctx.toRecord(
