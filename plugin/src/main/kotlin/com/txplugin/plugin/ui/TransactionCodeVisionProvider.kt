@@ -105,12 +105,6 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
             if (record.sqlQueryCount > 0) {
                 appendLine("SQL:        ${record.sqlQueryCount} queries, ${record.batchCount} batches")
             }
-            val entityOps = buildString {
-                if (record.insertCount > 0) append("↑${record.insertCount} ")
-                if (record.updateCount > 0) append("✎${record.updateCount} ")
-                if (record.deleteCount > 0) append("↓${record.deleteCount}")
-            }.trim()
-            if (entityOps.isNotEmpty()) appendLine("Entities:   $entityOps")
             if (record.exceptionType != null) {
                 appendLine("Exception:  ${record.exceptionType}")
                 if (record.exceptionMessage != null) appendLine("Message:    ${record.exceptionMessage}")

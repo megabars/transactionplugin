@@ -122,9 +122,6 @@ public class SocketReporter {
         num(sb,  "sqlQueryCount",  r.sqlQueryCount);
         num(sb,  "batchCount",     r.batchCount);
         arr(sb,  "sqlQueries",     r.sqlQueries);
-        num(sb,  "insertCount",    r.insertCount);
-        num(sb,  "updateCount",    r.updateCount);
-        num(sb,  "deleteCount",    r.deleteCount);
         str(sb,  "threadName",     r.threadName);
         strNullable(sb, "exceptionType",    r.exceptionType);
         strNullable(sb, "exceptionMessage", r.exceptionMessage);

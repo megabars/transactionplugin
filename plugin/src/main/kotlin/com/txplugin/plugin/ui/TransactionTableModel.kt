@@ -15,9 +15,6 @@ class TransactionTableModel : AbstractTableModel() {
         STATUS("Status", 90),
         SQL("SQL", 50),
         BATCH("Batch", 50),
-        INSERT("↑Ins", 50),
-        UPDATE("✎Upd", 50),
-        DELETE("↓Del", 50),
         PROPAGATION("Propagation", 110),
         ISOLATION("Isolation", 130),
         READ_ONLY("R/O", 40),
@@ -47,9 +44,6 @@ class TransactionTableModel : AbstractTableModel() {
             Column.STATUS     -> r.status.name
             Column.SQL        -> r.sqlQueryCount
             Column.BATCH      -> r.batchCount
-            Column.INSERT     -> r.insertCount
-            Column.UPDATE     -> r.updateCount
-            Column.DELETE     -> r.deleteCount
             Column.PROPAGATION -> r.propagation
             Column.ISOLATION  -> r.isolationLevel
             Column.READ_ONLY  -> if (r.readOnly) "Y" else ""
@@ -58,7 +52,6 @@ class TransactionTableModel : AbstractTableModel() {
 
     override fun getColumnClass(col: Int): Class<*> = when (Column.entries[col]) {
         Column.DURATION, Column.SQL, Column.BATCH -> Long::class.java
-        Column.INSERT, Column.UPDATE, Column.DELETE -> Long::class.java
         else -> String::class.java
     }
 }

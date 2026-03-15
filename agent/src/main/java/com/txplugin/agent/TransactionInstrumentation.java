@@ -15,7 +15,6 @@ import java.util.logging.Logger;
  * 1. Transaction lifecycle is tracked via invokeWithinTransaction enter/exit
  *    (no need to hook into doCommit/doRollback which are abstract methods).
  * 2. SQL is tracked via PreparedStatement/Statement interception.
- * 3. Hibernate entity counts via SessionFactory advice.
  */
 public class TransactionInstrumentation {
 
@@ -77,11 +76,6 @@ public class TransactionInstrumentation {
                     }
                 }
 
-                // Snapshot Hibernate counters at transaction start
-                ctx.insertCountBefore = HibernateStatsCollector.getInsertCount();
-                ctx.updateCountBefore = HibernateStatsCollector.getUpdateCount();
-                ctx.deleteCountBefore = HibernateStatsCollector.getDeleteCount();
-
             } catch (Throwable t) {
                 TransactionInstrumentation.LOG.fine("[TX] InvokeWithinTransaction enter advice failed: " + t);
             }
@@ -108,7 +102,7 @@ public class TransactionInstrumentation {
                 if (parent != null && !isNewTransaction) {
                     // Merge inner SQL into parent. The actual DB work (Hibernate flush, batch)
                     // happens during the outer's commit phase, so the outer record will capture
-                    // Hibernate stats and flush-SQL correctly at its own exit.
+                    // flush-SQL correctly at its own exit.
                     parent.sqlQueryCount += ctx.sqlQueryCount;
                     parent.batchCount    += ctx.batchCount;
                     for (String sql : ctx.sqlQueries) {
@@ -120,14 +114,7 @@ public class TransactionInstrumentation {
                 }
 
                 String status = (thrown == null) ? "COMMITTED" : "ROLLED_BACK";
-
-                TransactionRecord record = ctx.toRecord(
-                        status,
-                        HibernateStatsCollector.getInsertCount(),
-                        HibernateStatsCollector.getUpdateCount(),
-                        HibernateStatsCollector.getDeleteCount()
-                );
-                SocketReporter.send(record);
+                SocketReporter.send(ctx.toRecord(status));
             } catch (Throwable t) {
                 TransactionInstrumentation.LOG.fine("[TX] InvokeWithinTransaction exit advice failed: " + t);
             }
@@ -199,22 +186,6 @@ public class TransactionInstrumentation {
     }
 
     // =========================================================================
-    // 6. SessionFactory creation — register Hibernate stats
-    // =========================================================================
-
-    public static class SessionFactoryAdvice {
-
-        @Advice.OnMethodExit
-        public static void onExit(@Advice.This Object self) {
-            try {
-                if (self != null) HibernateStatsCollector.setSessionFactory(self);
-            } catch (Throwable t) {
-                TransactionInstrumentation.LOG.fine("[TX] SessionFactory advice failed: " + t);
-            }
-        }
-    }
-
-    // =========================================================================
     // Transformer — wires advice to target classes/methods
     // =========================================================================
 
@@ -237,12 +208,6 @@ public class TransactionInstrumentation {
                             .on(ElementMatchers.named("invokeWithinTransaction")))
                     .visit(Advice.to(InvokeWithinTransactionExitAdvice.class)
                             .on(ElementMatchers.named("invokeWithinTransaction")));
-        }
-
-        // Hibernate SessionFactory (detect SessionFactoryImpl construction)
-        if (name.endsWith("SessionFactoryImpl")) {
-            builder = builder.visit(Advice.to(SessionFactoryAdvice.class)
-                    .on(ElementMatchers.isConstructor()));
         }
 
         // JDBC — Connection implementations (for prepareStatement SQL capture)

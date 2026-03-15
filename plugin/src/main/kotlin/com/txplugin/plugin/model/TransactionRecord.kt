@@ -29,10 +29,6 @@ data class TransactionRecord(
     val batchCount: Int = 0,
     val sqlQueries: List<String> = emptyList(),
 
-    val insertCount: Long = 0,
-    val updateCount: Long = 0,
-    val deleteCount: Long = 0,
-
     val exceptionType: String? = null,
     val exceptionMessage: String? = null,
     val stackTrace: String? = null,
@@ -53,12 +49,6 @@ data class TransactionRecord(
             append(" | SQL:$sqlQueryCount")
             if (batchCount > 0) append(" batch:$batchCount")
         }
-        val entityOps = buildString {
-            if (insertCount > 0) append("↑$insertCount ")
-            if (updateCount > 0) append("✎$updateCount ")
-            if (deleteCount > 0) append("↓$deleteCount")
-        }.trim()
-        if (entityOps.isNotEmpty()) append(" | $entityOps")
         if (propagation.isNotEmpty()) append(" | $propagation")
         if (isRolledBack && exceptionType != null) {
             val shortType = exceptionType.substringAfterLast('.')

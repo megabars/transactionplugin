@@ -45,11 +45,6 @@ public class TransactionRecord {
     /** Up to MAX_SQL_QUERIES captured SQL strings */
     public List<String> sqlQueries = new ArrayList<>();
 
-    // ── Hibernate entity operations ──────────────────────────────────────────
-    public long insertCount;
-    public long updateCount;
-    public long deleteCount;
-
     // ── Exception (populated when status == ROLLED_BACK) ────────────────────
     /** e.g. "java.lang.NullPointerException" */
     public String exceptionType;

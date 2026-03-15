@@ -57,7 +57,6 @@ public class AgentMain {
                 // Match Spring TX aspect + Hibernate + JDBC implementations
                 .type(
                         ElementMatchers.nameContains("TransactionAspectSupport")
-                        .or(ElementMatchers.nameEndsWith("SessionFactoryImpl"))
                         .or(ElementMatchers.nameContains("PreparedStatement")
                                 .and(ElementMatchers.not(ElementMatchers.nameStartsWith("java.")))
                                 .and(ElementMatchers.not(ElementMatchers.nameStartsWith("javax."))))

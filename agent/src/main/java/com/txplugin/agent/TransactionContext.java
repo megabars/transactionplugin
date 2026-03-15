@@ -30,11 +30,6 @@ public class TransactionContext {
     public int batchCount    = 0;
     public final java.util.List<String> sqlQueries = new java.util.ArrayList<>();
 
-    // Hibernate entity counts snapshotted at transaction start
-    public long insertCountBefore = 0;
-    public long updateCountBefore = 0;
-    public long deleteCountBefore = 0;
-
     // Exception set on rollback
     public Throwable exception;
 
@@ -68,10 +63,7 @@ public class TransactionContext {
 
     // ── Record builder ────────────────────────────────────────────────────────
 
-    public TransactionRecord toRecord(String status,
-                                       long insertAfter,
-                                       long updateAfter,
-                                       long deleteAfter) {
+    public TransactionRecord toRecord(String status) {
         TransactionRecord r   = new TransactionRecord();
         r.transactionId       = transactionId;
         r.className           = className;
@@ -89,9 +81,6 @@ public class TransactionContext {
         r.sqlQueryCount       = sqlQueryCount;
         r.batchCount          = batchCount;
         r.sqlQueries          = new java.util.ArrayList<>(sqlQueries);
-        r.insertCount         = Math.max(0, insertAfter - insertCountBefore);
-        r.updateCount         = Math.max(0, updateAfter - updateCountBefore);
-        r.deleteCount         = Math.max(0, deleteAfter - deleteCountBefore);
         r.threadName          = threadName;
         if (exception != null) {
             r.exceptionType    = exception.getClass().getName();
