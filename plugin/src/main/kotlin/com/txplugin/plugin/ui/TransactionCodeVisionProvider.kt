@@ -9,12 +9,18 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.txplugin.plugin.model.TransactionRecord
 import com.txplugin.plugin.store.TransactionStore
+import java.awt.Dimension
+import java.awt.Font
 import java.awt.event.MouseEvent
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import javax.swing.BorderFactory
+import javax.swing.UIManager
 
 /**
  * Shows the last transaction result as a code vision lens above each
@@ -102,8 +108,8 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
             appendLine("Propagation: ${record.propagation}")
             appendLine("Isolation:   ${record.isolationLevel}")
             appendLine("ReadOnly:    ${record.readOnly}")
-            if (record.sqlQueryCount > 0) {
-                appendLine("SQL:        ${record.sqlQueryCount} queries, ${record.batchCount} batches")
+            if (record.batchCount > 0) {
+                appendLine("Batch rows: ${record.batchCount}")
             }
             if (record.exceptionType != null) {
                 appendLine("Exception:  ${record.exceptionType}")
@@ -111,7 +117,24 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
             }
         }.trimEnd()
 
-        val popup = JBPopupFactory.getInstance().createMessage(message)
+        val textArea = JBTextArea(message).apply {
+            isEditable = false
+            lineWrap = true
+            wrapStyleWord = true
+            font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+            background = UIManager.getColor("Panel.background")
+            border = BorderFactory.createEmptyBorder(8, 10, 8, 10)
+        }
+        val scrollPane = JBScrollPane(textArea).apply {
+            preferredSize = Dimension(480, 180)
+            border = null
+        }
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(scrollPane, textArea)
+            .setResizable(true)
+            .setMovable(true)
+            .setRequestFocus(true)
+            .createPopup()
         if (event != null) {
             popup.showInScreenCoordinates(editor.contentComponent, event.locationOnScreen)
         } else {

@@ -39,7 +39,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 ./gradlew :plugin:runIde
 ```
 
-Артефакт: `plugin/build/distributions/plugin-0.1.0.zip`
+Артефакт: `plugin/build/distributions/plugin-0.2.0.zip`
 
 `plugin/build.gradle.kts` копирует собранный agent JAR в `plugin/build/resources/main/agent/` через `processResources`. При установке плагин извлекает JAR из resources если нет файла `plugin/agent/transaction-agent.jar` (dev-path).
 
@@ -49,11 +49,10 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Agent (Java):**
 - `agent/.../AgentMain.java` — `premain`/`agentmain`, парсит `port=PORT`, инициализирует Byte Buddy трансформер
-- `agent/.../TransactionInstrumentation.java` — 6 пар advice-классов: TX, PreparedStatement, Statement, batch, SessionFactory
+- `agent/.../TransactionInstrumentation.java` — advice-классы: TX, PreparedStatement (execute/addBatch/executeBatch/setXxx), Statement, SessionFactory; включает логику Hibernate stats
 - `agent/.../TransactionContext.java` — `ThreadLocal<Deque>` для nested TX; `push()`/`current()`/`pop()`
 - `agent/.../SocketReporter.java` — TCP-клиент, ring buffer 1000, reconnect каждые 3 сек, **ручная** JSON-сериализация (Jackson недоступен через system classloader)
-- `agent/.../SqlInterceptor.java` — static helpers для JDBC-interception; хранит SQL PreparedStatement через ThreadLocal
-- `agent/.../HibernateStatsCollector.java` — читает insert/update/delete счётчики через reflection
+- `agent/.../SqlInterceptor.java` — static helpers для JDBC-interception; три ThreadLocal: `PREPARED_SQL`, `PREPARED_PARAMS` (LinkedHashMap), `BATCH_ROW_CAPTURED`/`BATCH_EXEC_DEPTH`
 - `agent/.../TransactionRecord.java` — POJO, сериализуется вручную в `SocketReporter`
 
 **Plugin (Kotlin):**
@@ -64,6 +63,15 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 - `plugin/.../ui/TransactionDetailPanel.kt` — правая панель: SQL, метрики, кнопка навигации к методу
 - `plugin/.../ui/TransactionTableModel.kt` — модель таблицы для `JBTable`
 - `plugin/.../model/TransactionRecord.kt` — data class + `inlayHintText` (computed property с `get()`, **не** stored field — иначе Gson через no-arg конструктор вычислит значение из дефолтов и оно не обновится)
+
+## Точки входа плагина (plugin.xml)
+
+5 зарегистрированных расширений:
+- `toolWindow` — "Transaction Monitor" (anchor=right, icon=transaction.svg)
+- `codeInsight.codeVisionProvider` — TransactionCodeVisionProvider
+- `notificationGroup` — "TransactionMonitor" (displayType=BALLOON)
+- `applicationService` — TransactionStore
+- `java.programPatcher` — TransactionJavaProgramPatcher
 
 ## Ключевые решения
 
@@ -77,9 +85,18 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Без Jackson в агенте**: ручная JSON-сериализация в `SocketReporter.java` — Jackson недоступен через system classloader в Spring Boot fat JAR. Escape-логика обрабатывает `"`, `\`, `\n`, `\r`, `\t` и unicode < 0x20 (SQL может содержать любые символы). `connectAndStream()` использует peek→flush→poll: запись удаляется из буфера только после успешного `flush()` — при обрыве соединения она остаётся в буфере и отправится после переподключения.
 
-**SqlInterceptor ThreadLocal cleanup**: `getPreparedSql()` вызывает `.remove()` сразу после `.get()` — не случайность. Без этого pooled-потоки увидят SQL от предыдущего PreparedStatement того же потока.
+**SqlInterceptor ThreadLocal cleanup**: `getPreparedSql()` вызывает `.remove()` сразу после `.get()` — не случайность. Без этого pooled-потоки увидят SQL от предыдущего PreparedStatement того же потока. Для batch: SQL удаляется в `onBatchExecuteEnter()`, а не в `onAddBatch()` — SQL должен жить через все вызовы `addBatch()`.
 
-**Byte Buddy advice**: два отдельных класса для enter/exit (требование Byte Buddy). Аргументы `invokeWithinTransaction(Method, Class<?>, InvocationCallback)` — индексы 0 и 1, не 1 и 2. `doCommit`/`doRollback` — абстрактные методы, Byte Buddy их пропускает; статус транзакции определяется через `@Advice.Thrown` в exit advice. `JdbcServicesImpl` **не** перехватывается — только `SessionFactoryImpl`; иначе `unavailable=true` срабатывает раньше, чем создаётся реальный `SessionFactory`.
+**Перехват параметров PreparedStatement**: `SetParameterAdvice` перехватывает все `setXxx(int parameterIndex, value)` методы (кроме `setNull`). Параметры хранятся в `LinkedHashMap<Integer, Object>` — ключ по индексу дедуплицирует двойные вызовы от JDBC proxy. Форматируются как `[1='val', 2='val2']` и добавляются к SQL-строке в `sqlQueries`.
+
+**Proxy double-call**: JDBC connection pool оборачивает PreparedStatement в proxy, из-за чего `setXxx`, `addBatch`, `executeBatch` срабатывают дважды на одном потоке. Решения:
+- `setXxx` — `LinkedHashMap.put()` перезаписывает по тому же ключу
+- `addBatch` — флаг `BATCH_ROW_CAPTURED` (сбрасывается при следующем `setXxx`)
+- `executeBatch` — depth-counter `BATCH_EXEC_DEPTH`: только первый (outermost) вызов считается
+
+**`batchCount`**: количество строк добавленных через `addBatch()` (не количество вызовов `executeBatch()`). Отображается в Transaction Info и всплывающем окне хинта.
+
+**Byte Buddy advice**: два отдельных класса для enter/exit (требование Byte Buddy). Аргументы `invokeWithinTransaction(Method, Class<?>, InvocationCallback)` — индексы 0 и 1, не 1 и 2. `doCommit`/`doRollback` — абстрактные методы, Byte Buddy их пропускает; статус транзакции определяется через `@Advice.Thrown` в exit advice. `JdbcServicesImpl` **не** перехватывается — только `SessionFactoryImpl`; иначе `unavailable=true` срабатывает раньше, чем создаётся реальный `SessionFactory`. `SetParameterAdvice` применяется с `Assigner.Typing.DYNAMIC` чтобы autobox примитивы (int, long, boolean и т.д.) в Object.
 
 **methodKey**: `"className#methodName(ParamType1,ParamType2)"` — включает типы параметров для корректной работы с перегруженными методами. Агент использует `Class.getSimpleName()`, плагин — `canonicalText.substringBefore('<').substringAfterLast('.')` для совпадения.
 
@@ -106,9 +123,21 @@ FileEditorManager.getInstance(project).allEditors
 ## Формат хинта над методом
 
 ```
-✓ COMMITTED  342ms | batch:2 | REQUIRED
+✓ COMMITTED  342ms | batch:3 | REQUIRED
 ✗ ROLLED BACK  89ms | REQUIRED | NullPointerException
 ```
+
+## SQL Queries в Tool Window
+
+Каждый SQL-запрос отображается с параметрами на следующей строке:
+```
+SELECT * FROM users WHERE id = ?
+  [1='42']
+
+INSERT INTO orders (user_id, amount) VALUES (?,?)
+  [1='42', 2='99.90']
+```
+Параметры захватываются через `SetParameterAdvice` → `onSetParameter()`. Для batch каждая строка `addBatch()` — отдельная запись. Значения обрезаются до 100 символов.
 
 ## Логирование агента
 

@@ -146,9 +146,30 @@ public class TransactionInstrumentation {
         @Advice.OnMethodEnter
         public static void onEnter() {
             try {
-                SqlInterceptor.onPreparedExecute(SqlInterceptor.getPreparedSql());
+                SqlInterceptor.onPreparedExecute(
+                        SqlInterceptor.getPreparedSql(),
+                        SqlInterceptor.getPreparedParams());
             } catch (Throwable t) {
                 TransactionInstrumentation.LOG.fine("[TX] PreparedStatement execute advice failed: " + t);
+            }
+        }
+    }
+
+    // =========================================================================
+    // 3a. PreparedStatement.setXxx(int parameterIndex, value)
+    //     Intercepts all standard JDBC parameter binding calls.
+    // =========================================================================
+
+    public static class SetParameterAdvice {
+
+        @Advice.OnMethodEnter
+        public static void onEnter(
+                @Advice.Argument(0) int index,
+                @Advice.Argument(value = 1, typing = Assigner.Typing.DYNAMIC) Object value) {
+            try {
+                SqlInterceptor.onSetParameter(index, value);
+            } catch (Throwable t) {
+                // Must not throw from advice
             }
         }
     }
@@ -170,17 +191,45 @@ public class TransactionInstrumentation {
     }
 
     // =========================================================================
-    // 5. executeBatch
+    // 5. PreparedStatement.addBatch() — capture SQL+params for each batch row
     // =========================================================================
 
-    public static class BatchExecuteAdvice {
+    public static class AddBatchAdvice {
 
         @Advice.OnMethodEnter
         public static void onEnter() {
             try {
-                SqlInterceptor.onBatchExecute();
+                SqlInterceptor.onAddBatch();
             } catch (Throwable t) {
-                TransactionInstrumentation.LOG.fine("[TX] executeBatch advice failed: " + t);
+                // Must not throw from advice
+            }
+        }
+    }
+
+    // =========================================================================
+    // 6. executeBatch — enter/exit pair to deduplicate proxy double-calls
+    // =========================================================================
+
+    public static class BatchExecuteEnterAdvice {
+
+        @Advice.OnMethodEnter
+        public static void onEnter() {
+            try {
+                SqlInterceptor.onBatchExecuteEnter();
+            } catch (Throwable t) {
+                TransactionInstrumentation.LOG.fine("[TX] executeBatch enter advice failed: " + t);
+            }
+        }
+    }
+
+    public static class BatchExecuteExitAdvice {
+
+        @Advice.OnMethodExit(onThrowable = Throwable.class)
+        public static void onExit() {
+            try {
+                SqlInterceptor.onBatchExecuteExit();
+            } catch (Throwable t) {
+                // Must not throw
             }
         }
     }
@@ -228,8 +277,21 @@ public class TransactionInstrumentation {
                     .visit(Advice.to(PreparedExecuteAdvice.class)
                             .on(ElementMatchers.namedOneOf("execute", "executeUpdate", "executeQuery")
                                     .and(ElementMatchers.takesNoArguments())))
-                    .visit(Advice.to(BatchExecuteAdvice.class)
-                            .on(ElementMatchers.named("executeBatch")));
+                    .visit(Advice.to(AddBatchAdvice.class)
+                            .on(ElementMatchers.named("addBatch")
+                                    .and(ElementMatchers.takesNoArguments())))
+                    .visit(Advice.to(BatchExecuteEnterAdvice.class)
+                            .on(ElementMatchers.named("executeBatch")))
+                    .visit(Advice.to(BatchExecuteExitAdvice.class)
+                            .on(ElementMatchers.named("executeBatch")))
+                    // Capture parameter bindings: setString/setInt/setLong/setObject/etc.
+                    // Selector: name starts with "set", exactly 2 args, first arg is int (parameterIndex).
+                    // Excludes setNull(int,int) which carries sqlType, not a user value.
+                    .visit(Advice.to(SetParameterAdvice.class)
+                            .on(ElementMatchers.nameStartsWith("set")
+                                    .and(ElementMatchers.not(ElementMatchers.named("setNull")))
+                                    .and(ElementMatchers.takesArguments(2))
+                                    .and(ElementMatchers.takesArgument(0, int.class))));
         }
 
         // JDBC — plain Statement implementations

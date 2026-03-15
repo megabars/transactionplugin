@@ -49,7 +49,7 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         "Isolation"   to JBLabel(),
         "ReadOnly"    to JBLabel(),
         "Timeout"     to JBLabel(),
-        "SQL queries" to JBLabel()
+        "Batch rows"  to JBLabel()
     )
     private val metaPanel = buildMetaPanel()
 
@@ -140,7 +140,7 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         metaValues["Isolation"]!!.text   = record.isolationLevel
         metaValues["ReadOnly"]!!.text    = record.readOnly.toString()
         metaValues["Timeout"]!!.text     = if (record.timeout < 0) "none" else "${record.timeout}s"
-        metaValues["SQL queries"]!!.text = "${record.sqlQueryCount}  |  batches: ${record.batchCount}"
+        metaValues["Batch rows"]!!.text  = if (record.batchCount > 0) "${record.batchCount}" else "—"
 
         sqlArea.text = if (record.sqlQueries.isEmpty()) "(none captured)"
                        else record.sqlQueries.joinToString("\n\n")
