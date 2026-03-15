@@ -106,8 +106,8 @@ FileEditorManager.getInstance(project).allEditors
 ## Формат хинта над методом
 
 ```
-✓ COMMITTED  342ms | SQL:5 batch:2 | ↑3 ✎2 ↓1 | REQUIRED
-✗ ROLLED BACK  89ms | NullPointerException | REQUIRED
+✓ COMMITTED  342ms | batch:2 | REQUIRED
+✗ ROLLED BACK  89ms | REQUIRED | NullPointerException
 ```
 
 ## Логирование агента

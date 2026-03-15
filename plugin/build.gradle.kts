@@ -31,7 +31,7 @@ intellijPlatform {
     pluginConfiguration {
         id = "com.txplugin"
         name = "Transaction Monitor"
-        version = "0.1.0"
+        version = "0.2.0"
         description = "Real-time Spring Boot transaction monitoring with inlay hints"
         ideaVersion {
             sinceBuild = "233"

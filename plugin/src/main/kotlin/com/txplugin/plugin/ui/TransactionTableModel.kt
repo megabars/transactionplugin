@@ -13,7 +13,6 @@ class TransactionTableModel : AbstractTableModel() {
         METHOD("Method", 260),
         DURATION("ms", 60),
         STATUS("Status", 90),
-        SQL("SQL", 50),
         BATCH("Batch", 50),
         PROPAGATION("Propagation", 110),
         ISOLATION("Isolation", 130),
@@ -42,7 +41,6 @@ class TransactionTableModel : AbstractTableModel() {
             Column.METHOD     -> "${r.className.substringAfterLast('.')}.${r.methodName}()"
             Column.DURATION   -> r.durationMs
             Column.STATUS     -> r.status.name
-            Column.SQL        -> r.sqlQueryCount
             Column.BATCH      -> r.batchCount
             Column.PROPAGATION -> r.propagation
             Column.ISOLATION  -> r.isolationLevel
@@ -51,7 +49,7 @@ class TransactionTableModel : AbstractTableModel() {
     }
 
     override fun getColumnClass(col: Int): Class<*> = when (Column.entries[col]) {
-        Column.DURATION, Column.SQL, Column.BATCH -> Long::class.java
+        Column.DURATION, Column.BATCH -> Long::class.java
         else -> String::class.java
     }
 }

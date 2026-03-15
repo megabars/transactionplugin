@@ -45,10 +45,7 @@ data class TransactionRecord(
     val inlayHintText: String get() = buildString {
         if (isCommitted) append("✓ COMMITTED") else append("✗ ROLLED BACK")
         append("  ${durationMs}ms")
-        if (sqlQueryCount > 0) {
-            append(" | SQL:$sqlQueryCount")
-            if (batchCount > 0) append(" batch:$batchCount")
-        }
+        if (batchCount > 0) append(" | batch:$batchCount")
         if (propagation.isNotEmpty()) append(" | $propagation")
         if (isRolledBack && exceptionType != null) {
             val shortType = exceptionType.substringAfterLast('.')
