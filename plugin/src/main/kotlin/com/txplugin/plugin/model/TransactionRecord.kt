@@ -44,16 +44,19 @@ data class TransactionRecord(
 
     /** One-line summary for inlay hint */
     val inlayHintText: String get() = buildString {
-        if (isCommitted) append("✓") else append("✗")
-        append(" ${durationMs}ms")
-        if (sqlQueryCount > 0) append(" | SQL:$sqlQueryCount")
-        if (batchCount > 0) append(" batch:$batchCount")
+        if (isCommitted) append("✓ COMMITTED") else append("✗ ROLLED BACK")
+        append("  ${durationMs}ms")
+        if (sqlQueryCount > 0) {
+            append(" | SQL:$sqlQueryCount")
+            if (batchCount > 0) append(" batch:$batchCount")
+        }
         val entityOps = buildString {
-            if (insertCount > 0) append(" ↑$insertCount")
-            if (updateCount > 0) append(" ✎$updateCount")
-            if (deleteCount > 0) append(" ↓$deleteCount")
+            if (insertCount > 0) append("↑$insertCount ")
+            if (updateCount > 0) append("✎$updateCount ")
+            if (deleteCount > 0) append("↓$deleteCount")
         }.trim()
         if (entityOps.isNotEmpty()) append(" | $entityOps")
+        if (propagation.isNotEmpty()) append(" | $propagation")
         if (isRolledBack && exceptionType != null) {
             val shortType = exceptionType.substringAfterLast('.')
             append(" | $shortType")
