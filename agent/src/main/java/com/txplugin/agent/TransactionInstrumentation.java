@@ -205,9 +205,9 @@ public class TransactionInstrumentation {
     public static class SessionFactoryAdvice {
 
         @Advice.OnMethodExit
-        public static void onExit(@Advice.Return(typing = Assigner.Typing.DYNAMIC) Object result) {
+        public static void onExit(@Advice.This Object self) {
             try {
-                if (result != null) HibernateStatsCollector.setSessionFactory(result);
+                if (self != null) HibernateStatsCollector.setSessionFactory(self);
             } catch (Throwable t) {
                 TransactionInstrumentation.LOG.fine("[TX] SessionFactory advice failed: " + t);
             }
