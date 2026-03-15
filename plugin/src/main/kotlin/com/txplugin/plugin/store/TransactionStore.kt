@@ -8,6 +8,8 @@ import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.ProjectManager
 import com.txplugin.plugin.model.TransactionRecord
 import com.txplugin.plugin.ui.TransactionCodeVisionProvider
@@ -198,12 +200,22 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
             // 1. Notify Tool Window and other UI listeners
             listeners.forEach { it() }
 
-            // 2. Force CodeVision refresh via CodeVisionHost (immediate, no daemon delay)
+            // 2. Force CodeVision refresh via CodeVisionHost (immediate, no daemon delay).
+            // Передаём конкретный Editor для каждого открытого файла, так как
+            // LensInvalidateSignal(null, ...) ненадёжно тригерит перевалидацию в IJ 2023.3.
             ProjectManager.getInstance().openProjects.toList().forEach { project ->
                 if (project.isDisposed) return@forEach
-                project.getService(CodeVisionHost::class.java)?.invalidateProvider(
-                    CodeVisionHost.LensInvalidateSignal(null, listOf(TransactionCodeVisionProvider.ID))
-                )
+                val codeVisionHost = project.getService(CodeVisionHost::class.java) ?: return@forEach
+                FileEditorManager.getInstance(project).allEditors
+                    .filterIsInstance<TextEditor>()
+                    .forEach { fileEditor ->
+                        codeVisionHost.invalidateProvider(
+                            CodeVisionHost.LensInvalidateSignal(
+                                fileEditor.editor,
+                                listOf(TransactionCodeVisionProvider.ID)
+                            )
+                        )
+                    }
             }
         }
     }
