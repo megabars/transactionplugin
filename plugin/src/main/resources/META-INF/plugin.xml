@@ -29,7 +29,7 @@
                 id="TransactionMonitor"
                 displayType="BALLOON"/>
 
-        <!-- Application service: stores transaction data, manages socket server -->
+        <!-- Application service: stores transaction data, manages socket server, persists state -->
         <applicationService
                 serviceImplementation="com.txplugin.plugin.store.TransactionStore"/>
 

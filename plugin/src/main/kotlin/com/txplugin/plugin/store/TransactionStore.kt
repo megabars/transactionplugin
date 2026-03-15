@@ -1,13 +1,15 @@
 package com.txplugin.plugin.store
 
 import com.google.gson.Gson
-import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
+import com.intellij.codeInsight.codeVision.CodeVisionHost
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.psi.PsiManager
 import com.txplugin.plugin.model.TransactionRecord
+import com.txplugin.plugin.ui.TransactionCodeVisionProvider
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.ServerSocket
@@ -18,11 +20,21 @@ import java.util.concurrent.Executors
 /**
  * Application-level service that:
  *  1. Owns the in-memory ring buffer of completed transactions (max 1000).
- *  2. Runs a TCP server that accepts connections from the Java Agent.
- *  3. Notifies UI listeners when new transactions arrive.
+ *  2. Persists the last transaction per method across IDE restarts.
+ *  3. Runs a TCP server that accepts connections from the Java Agent.
+ *  4. Notifies UI listeners when new transactions arrive.
  */
+@State(
+    name = "TransactionStore",
+    storages = [Storage("transactionStore.xml")]
+)
 @Service(Service.Level.APP)
-class TransactionStore {
+class TransactionStore : PersistentStateComponent<TransactionStore.State> {
+
+    /** Persistent state: last transaction JSON per methodKey */
+    data class State(
+        var lastByMethod: MutableMap<String, String> = mutableMapOf()
+    )
 
     companion object {
         const val MAX_RECORDS = 1000
@@ -54,6 +66,29 @@ class TransactionStore {
         startServer()
     }
 
+    // ── PersistentStateComponent ──────────────────────────────────────────────
+
+    override fun getState(): State {
+        val map = mutableMapOf<String, String>()
+        synchronized(lock) {
+            // Store only the last record per method
+            records.forEach { r -> map[r.methodKey] = gson.toJson(r) }
+        }
+        return State(map)
+    }
+
+    override fun loadState(state: State) {
+        synchronized(lock) {
+            records.clear()
+            state.lastByMethod.values.forEach { json ->
+                try {
+                    val r = gson.fromJson(json, TransactionRecord::class.java)
+                    if (r != null) records.addLast(r)
+                } catch (_: Exception) { }
+            }
+        }
+    }
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     fun getRecords(): List<TransactionRecord> = synchronized(lock) { records.toList() }
@@ -83,17 +118,16 @@ class TransactionStore {
                         break
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Server failed to start — plugin still usable, just no live data
             }
         }
     }
 
     private fun bindServerSocket(): ServerSocket {
-        // Try DEFAULT_PORT first, then let the OS pick a free port
         return try {
             ServerSocket(DEFAULT_PORT)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             ServerSocket(0)
         }
     }
@@ -133,17 +167,12 @@ class TransactionStore {
             // 1. Notify Tool Window and other UI listeners
             listeners.forEach { it() }
 
-            // 2. Force CodeVision refresh — restart daemon for open Java/Kotlin files
+            // 2. Force CodeVision refresh via CodeVisionHost (immediate, no daemon delay)
             ProjectManager.getInstance().openProjects.forEach { project ->
                 if (project.isDisposed) return@forEach
-                val daemon = DaemonCodeAnalyzer.getInstance(project)
-                val psiManager = PsiManager.getInstance(project)
-                FileEditorManager.getInstance(project).openFiles.forEach { vFile ->
-                    if (vFile.extension == "java" || vFile.extension == "kt") {
-                        val psiFile = psiManager.findFile(vFile) ?: return@forEach
-                        daemon.restart(psiFile)
-                    }
-                }
+                project.getService(CodeVisionHost::class.java)?.invalidateProvider(
+                    CodeVisionHost.LensInvalidateSignal(null, listOf(TransactionCodeVisionProvider.ID))
+                )
             }
         }
     }
