@@ -1,6 +1,8 @@
 package com.txplugin.agent;
 
 import java.lang.reflect.Method;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.logging.Logger;
 
 /**
@@ -71,6 +73,11 @@ public class HibernateStatsCollector {
     }
 
     private static Method findMethod(Class<?> clazz, String name, Class<?>... params) {
+        return findMethod(clazz, name, new HashSet<>(), params);
+    }
+
+    private static Method findMethod(Class<?> clazz, String name, Set<Class<?>> visited, Class<?>... params) {
+        if (clazz == null || !visited.add(clazz)) return null;
         try {
             Method m = clazz.getMethod(name, params);
             m.setAccessible(true);
@@ -78,7 +85,7 @@ public class HibernateStatsCollector {
         } catch (NoSuchMethodException e) {
             // Try interfaces
             for (Class<?> iface : clazz.getInterfaces()) {
-                Method m = findMethod(iface, name, params);
+                Method m = findMethod(iface, name, visited, params);
                 if (m != null) return m;
             }
             return null;

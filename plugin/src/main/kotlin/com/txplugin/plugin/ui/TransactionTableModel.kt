@@ -1,6 +1,9 @@
 package com.txplugin.plugin.ui
 
 import com.txplugin.plugin.model.TransactionRecord
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.swing.table.AbstractTableModel
 
 class TransactionTableModel : AbstractTableModel() {
@@ -20,7 +23,8 @@ class TransactionTableModel : AbstractTableModel() {
         READ_ONLY("R/O", 40),
     }
 
-    private val timeFormat = java.text.SimpleDateFormat("HH:mm:ss")
+    // DateTimeFormatter is thread-safe (unlike SimpleDateFormat)
+    private val timeFormat = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
     private var rows: List<TransactionRecord> = emptyList()
 
     fun setRecords(records: List<TransactionRecord>) {
@@ -37,7 +41,7 @@ class TransactionTableModel : AbstractTableModel() {
     override fun getValueAt(row: Int, col: Int): Any {
         val r = rows[row]
         return when (Column.entries[col]) {
-            Column.TIME       -> timeFormat.format(java.util.Date(r.startTimeMs))
+            Column.TIME       -> timeFormat.format(Instant.ofEpochMilli(r.startTimeMs))
             Column.METHOD     -> "${r.className.substringAfterLast('.')}.${r.methodName}()"
             Column.DURATION   -> r.durationMs
             Column.STATUS     -> r.status

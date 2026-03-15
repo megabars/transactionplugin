@@ -55,7 +55,9 @@ public class SqlInterceptor {
     }
 
     public static String getPreparedSql() {
-        return PREPARED_SQL.get();
+        String sql = PREPARED_SQL.get();
+        PREPARED_SQL.remove(); // prevent stale SQL leaking into reused thread-pool threads
+        return sql;
     }
 
 

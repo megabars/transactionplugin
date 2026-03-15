@@ -1,6 +1,8 @@
 package com.txplugin.plugin.ui
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.JBColor
@@ -18,11 +20,9 @@ import javax.swing.table.DefaultTableCellRenderer
 class TransactionToolWindowFactory : ToolWindowFactory {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val content = toolWindow.contentManager.factory.createContent(
-            TransactionPanel(project),
-            "Transactions",
-            false
-        )
+        val panel = TransactionPanel(project)
+        val content = toolWindow.contentManager.factory.createContent(panel, "Transactions", false)
+        Disposer.register(content, panel)
         toolWindow.contentManager.addContent(content)
     }
 }
@@ -30,7 +30,7 @@ class TransactionToolWindowFactory : ToolWindowFactory {
 /**
  * Main panel: toolbar + split pane (table | detail).
  */
-class TransactionPanel(private val project: Project) : JPanel(BorderLayout()) {
+class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
 
     private val store = TransactionStore.getInstance()
     private val tableModel = TransactionTableModel()
@@ -39,6 +39,9 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     // Filter state
     private var statusFilter: String? = null // null = All
+
+    // Keep reference so we can remove the exact same lambda instance on dispose
+    private val storeListener: () -> Unit = { refreshTable() }
 
     init {
         add(buildToolbar(), BorderLayout.NORTH)
@@ -64,9 +67,13 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()) {
 
         add(split, BorderLayout.CENTER)
 
-        // Listen for new records
-        store.addListener { refreshTable() }
+        // Listen for new records — removed in dispose() to prevent listener leak
+        store.addListener(storeListener)
         refreshTable()
+    }
+
+    override fun dispose() {
+        store.removeListener(storeListener)
     }
 
     private fun buildToolbar(): JPanel {

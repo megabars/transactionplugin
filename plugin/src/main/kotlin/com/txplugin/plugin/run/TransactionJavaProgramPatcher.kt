@@ -43,7 +43,10 @@ class TransactionJavaProgramPatcher : JavaProgramPatcher() {
         }
 
         // 2. Extract from plugin JAR resources (dev / sandbox mode) — cached across launches
-        return extractedAgentJar ?: extractFromResources().also { extractedAgentJar = it }
+        return extractedAgentJar ?: synchronized(Companion) {
+            // Double-checked locking: re-check inside synchronized in case another thread extracted first
+            extractedAgentJar ?: extractFromResources().also { extractedAgentJar = it }
+        }
     }
 
     companion object {

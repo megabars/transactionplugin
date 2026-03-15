@@ -2,6 +2,7 @@ package com.txplugin.plugin.store
 
 import com.google.gson.Gson
 import com.intellij.codeInsight.codeVision.CodeVisionHost
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
@@ -44,6 +45,7 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
             ApplicationManager.getApplication().getService(TransactionStore::class.java)
     }
 
+    private val log = thisLogger()
     private val gson = Gson()
     private val executor = Executors.newCachedThreadPool { r ->
         Thread(r, "tx-store-io").also { it.isDaemon = true }
@@ -91,7 +93,9 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
                         records.addLast(r)
                         latestByMethod[r.methodKey] = r
                     }
-                } catch (_: Exception) { }
+                } catch (e: Exception) {
+                    log.warn("TransactionStore: failed to deserialize persisted record", e)
+                }
             }
         }
     }
@@ -140,8 +144,8 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
                         break
                     }
                 }
-            } catch (_: Exception) {
-                // Server failed to start — plugin still usable, just no live data
+            } catch (e: Exception) {
+                log.warn("TransactionStore: TCP server failed to start — live transaction data unavailable", e)
             }
         }
     }
@@ -165,7 +169,9 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
                     }
                 }
             }
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            log.debug("TransactionStore: agent connection closed: ${e.message}")
+        }
     }
 
     private fun parseLine(line: String): TransactionRecord? {
@@ -191,7 +197,7 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
             listeners.forEach { it() }
 
             // 2. Force CodeVision refresh via CodeVisionHost (immediate, no daemon delay)
-            ProjectManager.getInstance().openProjects.forEach { project ->
+            ProjectManager.getInstance().openProjects.toList().forEach { project ->
                 if (project.isDisposed) return@forEach
                 project.getService(CodeVisionHost::class.java)?.invalidateProvider(
                     CodeVisionHost.LensInvalidateSignal(null, listOf(TransactionCodeVisionProvider.ID))
