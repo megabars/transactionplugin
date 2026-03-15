@@ -17,6 +17,9 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.FlowLayout
 import java.awt.Font
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.Insets
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -78,13 +81,47 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
     }
 
     private fun buildMetaPanel(): JPanel {
-        val panel = JPanel().also { it.layout = BoxLayout(it, BoxLayout.Y_AXIS) }
-        metaValues.forEach { (label, valueLabel) ->
-            val row = JPanel(FlowLayout(FlowLayout.LEFT, 4, 1))
-            row.add(JBLabel("$label:").also { it.font = it.font.deriveFont(Font.BOLD) })
-            row.add(valueLabel)
-            panel.add(row)
+        val panel = JPanel(GridBagLayout())
+
+        fun lbl(text: String, col: Int, row: Int) {
+            panel.add(
+                JBLabel("$text:").also { it.font = it.font.deriveFont(Font.BOLD) },
+                GridBagConstraints().also {
+                    it.gridx = col; it.gridy = row
+                    it.anchor = GridBagConstraints.NORTHWEST
+                    it.insets = Insets(1, 8, 1, 4)
+                    it.weightx = 0.0; it.fill = GridBagConstraints.NONE
+                }
+            )
         }
+
+        fun value(label: JBLabel, col: Int, row: Int, colspan: Int = 1) {
+            panel.add(
+                label,
+                GridBagConstraints().also {
+                    it.gridx = col; it.gridy = row; it.gridwidth = colspan
+                    it.anchor = GridBagConstraints.NORTHWEST
+                    it.insets = Insets(1, 0, 1, 8)
+                    it.weightx = 1.0; it.fill = GridBagConstraints.HORIZONTAL
+                }
+            )
+        }
+
+        // Row 0: Method spans all 4 columns
+        lbl("Method", 0, 0);  value(metaValues["Method"]!!,      1, 0, colspan = 3)
+        // Row 1: Time | Duration
+        lbl("Time",   0, 1);  value(metaValues["Time"]!!,        1, 1)
+        lbl("Duration",   2, 1);  value(metaValues["Duration"]!!,    3, 1)
+        // Row 2: Thread | Propagation
+        lbl("Thread", 0, 2);  value(metaValues["Thread"]!!,      1, 2)
+        lbl("Propagation", 2, 2); value(metaValues["Propagation"]!!, 3, 2)
+        // Row 3: Isolation | ReadOnly
+        lbl("Isolation", 0, 3); value(metaValues["Isolation"]!!, 1, 3)
+        lbl("ReadOnly",  2, 3); value(metaValues["ReadOnly"]!!,  3, 3)
+        // Row 4: Timeout | Batch rows
+        lbl("Timeout",    0, 4); value(metaValues["Timeout"]!!,    1, 4)
+        lbl("Batch rows", 2, 4); value(metaValues["Batch rows"]!!, 3, 4)
+
         return panel
     }
 
@@ -98,21 +135,30 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
             it.add(btnPanel, BorderLayout.EAST)
         }
 
-        val center = JPanel().also { p ->
-            p.layout = BoxLayout(p, BoxLayout.Y_AXIS)
-
-            p.add(sectionHeader("Transaction Info"))
-            p.add(metaPanel)
-
-            p.add(sectionHeader("SQL Queries"))
-            p.add(JBScrollPane(sqlArea).also { it.preferredSize = java.awt.Dimension(0, 160) })
-
-            p.add(sectionHeader("Exception / Rollback Cause"))
-            p.add(JBScrollPane(exceptionArea).also { it.preferredSize = java.awt.Dimension(0, 120) })
+        // Fixed-height block: title + Transaction Info fields
+        val northPanel = JPanel(BorderLayout()).also {
+            it.add(topBar, BorderLayout.NORTH)
+            it.add(sectionHeader("Transaction Info"), BorderLayout.CENTER)
+            it.add(metaPanel, BorderLayout.SOUTH)
         }
 
-        add(topBar, BorderLayout.NORTH)
-        add(JBScrollPane(center), BorderLayout.CENTER)
+        // SQL and Exception panels split vertically — both resizable by drag
+        val sqlPanel = JPanel(BorderLayout()).also {
+            it.add(sectionHeader("SQL Queries"), BorderLayout.NORTH)
+            it.add(JBScrollPane(sqlArea), BorderLayout.CENTER)
+        }
+        val exceptionPanel = JPanel(BorderLayout()).also {
+            it.add(sectionHeader("Exception / Rollback Cause"), BorderLayout.NORTH)
+            it.add(JBScrollPane(exceptionArea), BorderLayout.CENTER)
+        }
+        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, sqlPanel, exceptionPanel).also {
+            it.resizeWeight = 0.75   // SQL gets 75% when panel is resized
+            it.dividerSize = 5
+            it.isContinuousLayout = true
+        }
+
+        add(northPanel, BorderLayout.NORTH)
+        add(splitPane, BorderLayout.CENTER)
 
         navigateButton.addActionListener { navigateToSource() }
         navigateButton.isEnabled = false
@@ -163,7 +209,7 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         label.foreground = JBColor.GRAY
         label.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.LIGHT_GRAY),
-            BorderFactory.createEmptyBorder(6, 8, 2, 8)
+            BorderFactory.createEmptyBorder(4, 8, 2, 8)
         )
         return label
     }
