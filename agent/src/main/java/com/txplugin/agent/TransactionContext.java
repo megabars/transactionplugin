@@ -94,11 +94,25 @@ public class TransactionContext {
     }
 
     private static String buildStackTrace(Throwable t) {
+        StringBuilder sb = new StringBuilder();
+        appendThrowable(sb, t, 0);
+        return sb.toString();
+    }
+
+    private static void appendThrowable(StringBuilder sb, Throwable t, int depth) {
+        if (depth > 5) {
+            sb.append("  ... (cause chain truncated)");
+            return;
+        }
+        sb.append(t.toString()).append('\n');
         StackTraceElement[] frames = t.getStackTrace();
-        StringBuilder sb = new StringBuilder(t.toString()).append('\n');
         int limit = Math.min(frames.length, 10);
         for (int i = 0; i < limit; i++) sb.append("  at ").append(frames[i]).append('\n');
-        if (frames.length > 10) sb.append("  ... ").append(frames.length - 10).append(" more");
-        return sb.toString();
+        if (frames.length > 10) sb.append("  ... ").append(frames.length - 10).append(" more\n");
+        Throwable cause = t.getCause();
+        if (cause != null && cause != t) {
+            sb.append("Caused by: ");
+            appendThrowable(sb, cause, depth + 1);
+        }
     }
 }

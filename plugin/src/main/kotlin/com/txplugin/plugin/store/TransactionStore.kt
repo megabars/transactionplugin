@@ -177,10 +177,12 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     private fun handleClient(socket: Socket) {
         try {
             socket.use { s ->
+                s.soTimeout = 30_000
                 BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8)).use { reader ->
                     reader.lineSequence().forEach { line ->
-                        if (line.length > MAX_LINE_BYTES) {
-                            log.warn("TransactionStore: oversized line (${line.length} chars) — skipping")
+                        val lineBytes = line.toByteArray(Charsets.UTF_8).size
+                        if (lineBytes > MAX_LINE_BYTES) {
+                            log.warn("TransactionStore: oversized line ($lineBytes bytes) — skipping")
                             return@forEach
                         }
                         val record = parseLine(line) ?: return@forEach

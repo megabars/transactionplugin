@@ -36,15 +36,15 @@ public class SqlInterceptor {
         }
     }
 
+    /** Max batch rows to accumulate params for; prevents OOM on huge bulk inserts. */
+    private static final int MAX_BATCH_ROWS = 1000;
+
     /**
      * Called before PreparedStatement.addBatch() (no-arg).
      * Batch flow: prepareStatement → (setXxx × N → addBatch) × M → executeBatch.
      * SQL is NOT removed here so it remains available for subsequent addBatch() calls.
      * Params are cleared after capture so the next row starts fresh.
      */
-    /** Max batch rows to accumulate params for; prevents OOM on huge bulk inserts. */
-    private static final int MAX_BATCH_ROWS = 1000;
-
     public static void onAddBatch() {
         // Skip if this is a proxy double-call for the same row
         if (Boolean.TRUE.equals(BATCH_ROW_CAPTURED.get())) return;

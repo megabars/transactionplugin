@@ -75,7 +75,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 ## Ключевые решения
 
-**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321, 50, InetAddress.getLoopbackAddress())`; если занят — `ServerSocket(0, 50, loopback)` (случайный порт). Bind только на loopback — агент подключается к `127.0.0.1`, внешние соединения невозможны. `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга. Входящие строки ограничены `MAX_LINE_BYTES = 1 MiB` — строки сверх лимита логируются и пропускаются.
+**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321, 50, InetAddress.getLoopbackAddress())`; если занят — `ServerSocket(0, 50, loopback)` (случайный порт). Bind только на loopback — агент подключается к `127.0.0.1`, внешние соединения невозможны. `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга. На каждый принятый клиентский сокет устанавливается `soTimeout = 30_000` мс — если агент завис и не шлёт данные, поток-читатель разблокируется через 30 сек. Входящие строки ограничены `MAX_LINE_BYTES = 1 MiB` — проверка выполняется в байтах (`line.toByteArray(UTF_8).size`), строки сверх лимита логируются и пропускаются.
 
 **Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking — не извлекается заново при каждом запуске.
 
@@ -83,7 +83,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Classloader**: `appendToSystemClassLoaderSearch` — НЕ `appendToBootstrapClassLoaderSearch` (вызывает LinkageError из-за дублирования Byte Buddy). Метод называется `injectIntoSystemClassLoader`. `JarFile` передаётся в `appendToSystemClassLoaderSearch` и **намеренно не закрывается** — спецификация `Instrumentation` требует, чтобы он жил на протяжении всего classloader-а.
 
-**Без Jackson в агенте**: ручная JSON-сериализация в `SocketReporter.java` — Jackson недоступен через system classloader в Spring Boot fat JAR. Escape-логика обрабатывает `"`, `\`, `\n`, `\r`, `\t` и unicode < 0x20 (SQL может содержать любые символы). `connectAndStream()` использует peek→flush→poll: запись удаляется из буфера только после успешного `flush()` — при обрыве соединения она остаётся в буфере и отправится после переподключения. Poll защищён проверкой идентичности (`peekFirst() == record`) — если `enqueue()` вытеснил запись во время записи в сокет, мы не удаляем следующую (ещё неотправленную).
+**Без Jackson в агенте**: ручная JSON-сериализация в `SocketReporter.java` — Jackson недоступен через system classloader в Spring Boot fat JAR. Escape-логика обрабатывает `"`, `\`, `\n`, `\r`, `\t`, unicode < 0x20, а также surrogate pairs (символы вне BMP — emoji и некоторые CJK): каждая пара `high+low surrogate` кодируется как два `\uXXXX`-эскейпа, что является валидным JSON. Итерация ведётся по `char` с явным `i += 2` для surrogate pair. `connectAndStream()` использует peek→flush→poll: запись удаляется из буфера только после успешного `flush()` — при обрыве соединения она остаётся в буфере и отправится после переподключения. Poll защищён проверкой идентичности (`peekFirst() == record`) — если `enqueue()` вытеснил запись во время записи в сокет, мы не удаляем следующую (ещё неотправленную).
 
 **SqlInterceptor ThreadLocal cleanup**: `getPreparedSql()` вызывает `.remove()` сразу после `.get()` — не случайность. Без этого pooled-потоки увидят SQL от предыдущего PreparedStatement того же потока. Для batch: SQL удаляется в `onBatchExecuteEnter()`, а не в `onAddBatch()` — SQL должен жить через все вызовы `addBatch()`.
 
@@ -101,6 +101,12 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 **Propagation и слияние SQL**: в exit advice `isNewTransaction` включает `REQUIRES_NEW`, `NESTED`, `NOT_SUPPORTED`, `NEVER` — все они получают отдельный `TransactionRecord`. `REQUIRED`, `SUPPORTS`, `MANDATORY` при наличии parent-контекста сливают SQL в родителя и отдельную запись не отправляют. `NOT_SUPPORTED` и `NEVER` **обязаны** быть в `isNewTransaction` — иначе их SQL (выполняющийся вне транзакции) ошибочно атрибутируется внешней TX.
 
 **Определение статуса транзакции**: если `thrown == null` → COMMITTED; если `thrown != null` → проверяем `noRollbackFor`/`noRollbackForClassName` из `@Transactional` (сохранены в `TransactionContext`) через `committedDespiteException()` — если исключение входит в список исключений из отката, статус COMMITTED, иначе ROLLED_BACK. Это корректно обрабатывает `@Transactional(noRollbackFor = SomeException.class)`.
+
+**Stack trace исключения**: `buildStackTrace()` рекурсивно обходит цепочку `getCause()` (до 5 уровней, защита от циклических ссылок через `cause != t`), каждый уровень предваряется `Caused by:`. Это отображает реальную первопричину вместо верхнего wrapper-исключения.
+
+**Фильтр типов в AgentBuilder**: тайп-матчер для `Connection`-классов исключает `AbstractConnection` (`.not(nameContains("AbstractConnection"))`) — согласовано с `applyAdvice` в `TransactionInstrumentation`. Без этого абстрактные классы попадали бы под инструментацию, но `applyAdvice` их игнорировал, создавая лишний overhead.
+
+**Code Vision клик**: при клике на хинт открывается только popup с деталями транзакции — Tool Window больше не открывается принудительно.
 
 **methodKey**: `"className#methodName(ParamType1,ParamType2)"` — включает типы параметров для корректной работы с перегруженными методами. Агент использует `Class.getSimpleName()`, плагин — `canonicalText.substringBefore('<').substringAfterLast('.')` для совпадения.
 

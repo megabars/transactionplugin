@@ -6,7 +6,6 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.TextRange
-import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.ui.components.JBScrollPane
@@ -139,10 +138,6 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
             popup.showInScreenCoordinates(editor.contentComponent, event.locationOnScreen)
         } else {
             popup.showInBestPositionFor(editor)
-        }
-
-        editor.project?.let { project ->
-            ToolWindowManager.getInstance(project).getToolWindow("Transaction Monitor")?.show()
         }
     }
 }

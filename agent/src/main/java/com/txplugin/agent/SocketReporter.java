@@ -173,8 +173,15 @@ public class SocketReporter {
     private static String escape(String s) {
         if (s == null) return "";
         StringBuilder sb = new StringBuilder(s.length() + 8);
-        for (int i = 0; i < s.length(); i++) {
+        int i = 0;
+        while (i < s.length()) {
             char c = s.charAt(i);
+            // Encode surrogate pairs as two JSON unicode escapes (\\uHHHH\\uHHHH)
+            if (Character.isHighSurrogate(c) && i + 1 < s.length() && Character.isLowSurrogate(s.charAt(i + 1))) {
+                sb.append(String.format("\\u%04x\\u%04x", (int) c, (int) s.charAt(i + 1)));
+                i += 2;
+                continue;
+            }
             switch (c) {
                 case '"':  sb.append("\\\""); break;
                 case '\\': sb.append("\\\\"); break;
@@ -185,6 +192,7 @@ public class SocketReporter {
                     if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
                     else sb.append(c);
             }
+            i++;
         }
         return sb.toString();
     }
