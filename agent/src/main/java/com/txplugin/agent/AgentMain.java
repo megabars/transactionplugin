@@ -28,7 +28,7 @@ public class AgentMain {
 
     private static void install(String agentArgs, Instrumentation instrumentation) {
         int port = parsePort(agentArgs);
-        LOG.info("[TransactionAgent] Installing, reporting to plugin on port=" + port);
+        LOG.fine("[TransactionAgent] Installing, reporting to plugin on port=" + port);
 
         // ── Critical: inject agent classes into bootstrap classloader ────────
         // Spring Boot uses LaunchedURLClassLoader which cannot see agent classes.
@@ -76,7 +76,7 @@ public class AgentMain {
                 .transform(TransactionInstrumentation.buildTransformer())
                 .installOn(instrumentation);
 
-        LOG.info("[TransactionAgent] Installed successfully");
+        LOG.fine("[TransactionAgent] Installed successfully");
     }
 
     /**
@@ -102,7 +102,7 @@ public class AgentMain {
             );
             if (agentJar.exists() && agentJar.getName().endsWith(".jar")) {
                 instrumentation.appendToSystemClassLoaderSearch(new JarFile(agentJar));
-                LOG.info("[TransactionAgent] Added to system classloader: " + agentJar);
+                LOG.fine("[TransactionAgent] Added to system classloader: " + agentJar);
             }
         } catch (Exception e) {
             LOG.warning("[TransactionAgent] System classloader injection failed: " + e.getMessage());

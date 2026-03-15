@@ -74,7 +74,7 @@ public class SocketReporter {
              BufferedWriter w = new BufferedWriter(
                      new OutputStreamWriter(s.getOutputStream(), "UTF-8"))) {
 
-            LOG.info("Transaction reporter connected to plugin on port " + port);
+            LOG.fine("Transaction reporter connected to plugin on port " + port);
 
             while (!Thread.currentThread().isInterrupted() && !s.isClosed()) {
                 TransactionRecord record;
