@@ -67,6 +67,12 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 ## Ключевые решения
 
+**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321)`; если занят — `ServerSocket(0)` (случайный порт). `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически.
+
+**Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` — не извлекается заново при каждом запуске.
+
+**Spring в агенте — `compileOnly`**: `spring-tx`/`spring-context` не входят в fat JAR агента — загружаются из classpath целевого приложения в рантайме.
+
 **Classloader**: `appendToSystemClassLoaderSearch` — НЕ `appendToBootstrapClassLoaderSearch` (вызывает LinkageError из-за дублирования Byte Buddy). Метод называется `injectIntoSystemClassLoader`.
 
 **Без Jackson в агенте**: ручная JSON-сериализация в `SocketReporter.java` — Jackson недоступен через system classloader в Spring Boot fat JAR.

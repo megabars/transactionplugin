@@ -28,7 +28,7 @@ public class SocketReporter {
 
     private final AtomicLong droppedCount = new AtomicLong();
 
-    private static SocketReporter INSTANCE;
+    private static volatile SocketReporter INSTANCE;
 
     private final int port;
     private final Deque<TransactionRecord> buffer = new ArrayDeque<>(BUFFER_CAPACITY);
@@ -90,11 +90,13 @@ public class SocketReporter {
                         buffer.wait(1000);
                         if (s.isClosed()) return;
                     }
-                    record = buffer.pollFirst();
+                    record = buffer.peekFirst(); // peek — не удаляем до успешной отправки
                 }
                 w.write(toJson(record));
                 w.newLine();
                 w.flush();
+                // Удаляем только после успешной записи в сокет
+                synchronized (buffer) { buffer.pollFirst(); }
             }
         }
     }
@@ -159,7 +161,9 @@ public class SocketReporter {
         if (values != null) {
             for (int i = 0; i < values.size(); i++) {
                 if (i > 0) sb.append(',');
-                sb.append('"').append(escape(values.get(i))).append('"');
+                String v = values.get(i);
+                if (v == null) sb.append("null");
+                else sb.append('"').append(escape(v)).append('"');
             }
         }
         sb.append("],");
