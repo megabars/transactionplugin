@@ -70,6 +70,8 @@ public class TransactionInstrumentation {
                             ctx.isolationLevel = tx.isolation().name();
                             ctx.readOnly       = tx.readOnly();
                             ctx.timeout        = tx.timeout();
+                            ctx.noRollbackFor          = tx.noRollbackFor();
+                            ctx.noRollbackForClassName = tx.noRollbackForClassName();
                         }
                     } catch (Throwable t) {
                         TransactionInstrumentation.LOG.fine("[TX] failed to read @Transactional metadata: " + t);
@@ -113,11 +115,28 @@ public class TransactionInstrumentation {
                     return; // No separate record — this method participates in the outer TX
                 }
 
-                String status = (thrown == null) ? "COMMITTED" : "ROLLED_BACK";
+                String status = (thrown == null || committedDespiteException(ctx, thrown))
+                        ? "COMMITTED" : "ROLLED_BACK";
                 SocketReporter.send(ctx.toRecord(status));
             } catch (Throwable t) {
                 TransactionInstrumentation.LOG.fine("[TX] InvokeWithinTransaction exit advice failed: " + t);
             }
+        }
+
+        /**
+         * Returns true when the exception was thrown but Spring committed the TX anyway
+         * (i.e., the exception matches noRollbackFor / noRollbackForClassName).
+         */
+        private static boolean committedDespiteException(TransactionContext ctx, Throwable thrown) {
+            for (Class<?> cls : ctx.noRollbackFor) {
+                if (cls.isInstance(thrown)) return true;
+            }
+            String thrownName = thrown.getClass().getName();
+            String thrownSimple = thrown.getClass().getSimpleName();
+            for (String name : ctx.noRollbackForClassName) {
+                if (thrownName.equals(name) || thrownSimple.equals(name)) return true;
+            }
+            return false;
         }
     }
 

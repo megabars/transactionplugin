@@ -24,6 +24,9 @@ public class TransactionContext {
     public String isolationLevel = "DEFAULT";
     public boolean readOnly      = false;
     public int timeout           = -1;
+    // Exceptions excluded from rollback — if thrown matches, TX was actually committed
+    public Class<?>[] noRollbackFor      = new Class[0];
+    public String[]   noRollbackForClassName = new String[0];
 
     // SQL tracking
     public int sqlQueryCount = 0;

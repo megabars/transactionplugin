@@ -95,7 +95,11 @@ public class SqlInterceptor {
     /** Called on exit from executeBatch() (including exceptional exit). */
     public static void onBatchExecuteExit() {
         int[] depth = BATCH_EXEC_DEPTH.get();
-        if (depth[0] > 0) depth[0]--;
+        if (depth[0] > 0) {
+            depth[0]--;
+            // Free the int[] from pooled threads once no batch is in progress
+            if (depth[0] == 0) BATCH_EXEC_DEPTH.remove();
+        }
     }
 
     // ── PreparedStatement SQL tracking ───────────────────────────────────────

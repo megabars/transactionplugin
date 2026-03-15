@@ -52,7 +52,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 - `agent/.../TransactionInstrumentation.java` — advice-классы: TX (`invokeWithinTransaction`), PreparedStatement (execute/addBatch/executeBatch/setXxx), plain Statement
 - `agent/.../TransactionContext.java` — `ThreadLocal<Deque>` для nested TX; `push()`/`current()`/`pop()`
 - `agent/.../SocketReporter.java` — TCP-клиент, ring buffer 1000, reconnect каждые 3 сек, **ручная** JSON-сериализация (Jackson недоступен через system classloader)
-- `agent/.../SqlInterceptor.java` — static helpers для JDBC-interception; три ThreadLocal: `PREPARED_SQL`, `PREPARED_PARAMS` (LinkedHashMap), `BATCH_ROW_CAPTURED`/`BATCH_EXEC_DEPTH`
+- `agent/.../SqlInterceptor.java` — static helpers для JDBC-interception; пять ThreadLocal: `PREPARED_SQL`, `PREPARED_PARAMS` (LinkedHashMap), `BATCH_ROW_CAPTURED`, `BATCH_EXEC_DEPTH` (int[], `.remove()` при возврате к 0), `BATCH_PARAMS_LIST`
 - `agent/.../TransactionRecord.java` — POJO, сериализуется вручную в `SocketReporter`
 
 **Plugin (Kotlin):**
@@ -98,13 +98,15 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Byte Buddy advice**: два отдельных класса для enter/exit (требование Byte Buddy). Аргументы `invokeWithinTransaction(Method, Class<?>, InvocationCallback)` — индексы 0 и 1, не 1 и 2. `doCommit`/`doRollback` — абстрактные методы, Byte Buddy их пропускает; статус транзакции определяется через `@Advice.Thrown` в exit advice. `SetParameterAdvice` применяется с `Assigner.Typing.DYNAMIC` чтобы autobox примитивы (int, long, boolean и т.д.) в Object.
 
+**Определение статуса транзакции**: если `thrown == null` → COMMITTED; если `thrown != null` → проверяем `noRollbackFor`/`noRollbackForClassName` из `@Transactional` (сохранены в `TransactionContext`) через `committedDespiteException()` — если исключение входит в список исключений из отката, статус COMMITTED, иначе ROLLED_BACK. Это корректно обрабатывает `@Transactional(noRollbackFor = SomeException.class)`.
+
 **methodKey**: `"className#methodName(ParamType1,ParamType2)"` — включает типы параметров для корректной работы с перегруженными методами. Агент использует `Class.getSimpleName()`, плагин — `canonicalText.substringBefore('<').substringAfterLast('.')` для совпадения.
 
 **Навигация к источнику**: реализована через PSI (`findMethodsByName` + сравнение `parameterTypes`), не через `lineNumber` (поле не заполняется агентом).
 
-**Refresh CodeVision**: перебираем все открытые `TextEditor` и инвалидируем явно по каждому (вариант с `editor=null` ненадёжен в IJ 2023.3):
+**Refresh CodeVision**: перебираем все открытые `TextEditor` и инвалидируем явно по каждому (вариант с `editor=null` ненадёжен в IJ 2023.3). `.toList()` создаёт snapshot перед итерацией:
 ```kotlin
-FileEditorManager.getInstance(project).allEditors
+FileEditorManager.getInstance(project).allEditors.toList()
     .filterIsInstance<TextEditor>()
     .forEach { fileEditor ->
         codeVisionHost.invalidateProvider(

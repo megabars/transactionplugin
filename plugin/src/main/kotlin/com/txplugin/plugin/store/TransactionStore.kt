@@ -56,8 +56,10 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     /** Ring buffer — oldest entries are dropped when full */
     private val records = ArrayDeque<TransactionRecord>(MAX_RECORDS)
 
-    /** O(1) lookup: methodKey → last record for that method */
-    private val latestByMethod = HashMap<String, TransactionRecord>()
+    /** O(1) lookup: methodKey → last record for that method.
+     *  LinkedHashMap preserves insertion order so we can evict the oldest entry
+     *  when the map exceeds MAX_RECORDS (prevents unbounded growth). */
+    private val latestByMethod = LinkedHashMap<String, TransactionRecord>()
 
     private val lock = Any()
 
@@ -166,9 +168,8 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
         try {
             socket.use { s ->
                 BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8)).use { reader ->
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        val record = parseLine(line!!) ?: continue
+                    reader.lineSequence().forEach { line ->
+                        val record = parseLine(line) ?: return@forEach
                         addRecord(record)
                     }
                 }
@@ -191,6 +192,11 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
             if (records.size >= MAX_RECORDS) records.removeFirst()
             records.addLast(record)
             latestByMethod[record.methodKey] = record
+            // Evict oldest entries to prevent unbounded growth (e.g. many generated proxy methods)
+            if (latestByMethod.size > MAX_RECORDS) {
+                val iter = latestByMethod.iterator()
+                repeat(latestByMethod.size - MAX_RECORDS) { if (iter.hasNext()) { iter.next(); iter.remove() } }
+            }
         }
         notifyListeners()
     }
@@ -206,7 +212,7 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
             ProjectManager.getInstance().openProjects.toList().forEach { project ->
                 if (project.isDisposed) return@forEach
                 val codeVisionHost = project.getService(CodeVisionHost::class.java) ?: return@forEach
-                FileEditorManager.getInstance(project).allEditors
+                FileEditorManager.getInstance(project).allEditors.toList()
                     .filterIsInstance<TextEditor>()
                     .forEach { fileEditor ->
                         codeVisionHost.invalidateProvider(
