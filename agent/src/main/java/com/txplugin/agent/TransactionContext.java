@@ -28,17 +28,12 @@ public class TransactionContext {
     // SQL tracking
     public int sqlQueryCount = 0;
     public int batchCount    = 0;
-    public final java.util.List<String> sqlQueries = new java.util.concurrent.CopyOnWriteArrayList<>();
+    public final java.util.List<String> sqlQueries = new java.util.ArrayList<>();
 
     // Hibernate entity counts snapshotted at transaction start
     public long insertCountBefore = 0;
     public long updateCountBefore = 0;
     public long deleteCountBefore = 0;
-
-    // Реальный исход транзакции, выставляется advice'ами на doCommit/doRollback.
-    // Нужен потому что Spring при noRollbackFor/checked exception делает commit,
-    // но затем перебрасывает исключение — без этого флага статус определялся бы неверно.
-    public boolean committed = false;
 
     // Exception set on rollback
     public Throwable exception;

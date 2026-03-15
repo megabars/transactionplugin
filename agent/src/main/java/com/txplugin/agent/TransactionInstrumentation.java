@@ -98,11 +98,7 @@ public class TransactionInstrumentation {
 
                 if (thrown != null) ctx.exception = thrown;
 
-                // ctx.committed выставляется advice'ом на doCommit.
-                // Если флаг не выставлен (например, REQUIRES_NEW/Savepoint без перехвата),
-                // используем fallback: отсутствие исключения → COMMITTED.
-                String status = ctx.committed ? "COMMITTED"
-                        : (thrown == null ? "COMMITTED" : "ROLLED_BACK");
+                String status = (thrown == null) ? "COMMITTED" : "ROLLED_BACK";
 
                 TransactionRecord record = ctx.toRecord(
                         status,
@@ -118,43 +114,7 @@ public class TransactionInstrumentation {
     }
 
     // =========================================================================
-    // 2. AbstractPlatformTransactionManager.doCommit — фиксируем реальный исход
-    //    Вызывается Spring'ом при commit'е, в т.ч. при noRollbackFor/checked ex.
-    // =========================================================================
-
-    public static class DoCommitAdvice {
-
-        @Advice.OnMethodEnter
-        public static void onEnter() {
-            try {
-                TransactionContext ctx = TransactionContext.current();
-                if (ctx != null) ctx.committed = true;
-            } catch (Throwable t) {
-                TransactionInstrumentation.LOG.fine("[TX] doCommit advice failed: " + t);
-            }
-        }
-    }
-
-    // =========================================================================
-    // 3. AbstractPlatformTransactionManager.doRollback — rollback-флаг не нужен,
-    //    но advice гарантирует что committed остаётся false
-    // =========================================================================
-
-    public static class DoRollbackAdvice {
-
-        @Advice.OnMethodEnter
-        public static void onEnter() {
-            try {
-                TransactionContext ctx = TransactionContext.current();
-                if (ctx != null) ctx.committed = false;
-            } catch (Throwable t) {
-                TransactionInstrumentation.LOG.fine("[TX] doRollback advice failed: " + t);
-            }
-        }
-    }
-
-    // =========================================================================
-    // 4. Connection.prepareStatement — capture SQL for PreparedStatement
+    // 2. Connection.prepareStatement — capture SQL for PreparedStatement
     // =========================================================================
 
     public static class PrepareStatementAdvice {
@@ -256,17 +216,6 @@ public class TransactionInstrumentation {
                             .on(ElementMatchers.named("invokeWithinTransaction")))
                     .visit(Advice.to(InvokeWithinTransactionExitAdvice.class)
                             .on(ElementMatchers.named("invokeWithinTransaction")));
-        }
-
-        // AbstractPlatformTransactionManager.doCommit/doRollback — определяем реальный исход.
-        // Это необходимо для корректного статуса при noRollbackFor и checked exceptions,
-        // когда Spring коммитит транзакцию но затем перебрасывает исключение.
-        if (name.equals("org.springframework.transaction.support.AbstractPlatformTransactionManager")) {
-            builder = builder
-                    .visit(Advice.to(DoCommitAdvice.class)
-                            .on(ElementMatchers.named("doCommit")))
-                    .visit(Advice.to(DoRollbackAdvice.class)
-                            .on(ElementMatchers.named("doRollback")));
         }
 
         // Hibernate SessionFactory (detect SessionFactoryImpl construction)
