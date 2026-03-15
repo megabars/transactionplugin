@@ -4,7 +4,6 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Computable
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.NavigatablePsiElement
 import com.intellij.psi.PsiMethod
@@ -180,11 +179,11 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
     private fun navigateToSource() {
         val record = currentRecord ?: return
 
-        val target: NavigatablePsiElement? = ReadAction.compute(Computable {
+        val target: NavigatablePsiElement? = ReadAction.compute<NavigatablePsiElement?, Throwable> {
             val facade = JavaPsiFacade.getInstance(project)
             val projectScope = GlobalSearchScope.projectScope(project)
 
-            val psiClass = facade.findClass(record.className, projectScope) ?: return@Computable null
+            val psiClass = facade.findClass(record.className, projectScope) ?: return@compute null
 
             // Find the specific overload matching the record's parameter types
             val targetMethod: PsiMethod? = psiClass.findMethodsByName(record.methodName, true)
@@ -197,7 +196,7 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
                 ?: psiClass.findMethodsByName(record.methodName, true).firstOrNull()
 
             targetMethod ?: psiClass
-        })
+        }
 
         if (target == null) {
             NotificationGroupManager.getInstance()
