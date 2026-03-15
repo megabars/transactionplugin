@@ -63,7 +63,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 - `plugin/.../ui/TransactionToolWindowFactory.kt` — Tool Window: JBSplitter с таблицей и деталями
 - `plugin/.../ui/TransactionDetailPanel.kt` — правая панель: SQL, метрики, кнопка навигации к методу
 - `plugin/.../ui/TransactionTableModel.kt` — модель таблицы для `JBTable`
-- `plugin/.../model/TransactionRecord.kt` — data class + вычисляемое `inlayHintText`
+- `plugin/.../model/TransactionRecord.kt` — data class + `inlayHintText` (computed property с `get()`, **не** stored field — иначе Gson через no-arg конструктор вычислит значение из дефолтов и оно не обновится)
 
 ## Ключевые решения
 
@@ -83,11 +83,15 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Навигация к источнику**: реализована через PSI (`findMethodsByName` + сравнение `parameterTypes`), не через `lineNumber` (поле не заполняется агентом).
 
-**Refresh CodeVision**:
+**Refresh CodeVision**: перебираем все открытые `TextEditor` и инвалидируем явно по каждому (вариант с `editor=null` ненадёжен в IJ 2023.3):
 ```kotlin
-project.getService(CodeVisionHost::class.java)?.invalidateProvider(
-    CodeVisionHost.LensInvalidateSignal(null, listOf(TransactionCodeVisionProvider.ID))
-)
+FileEditorManager.getInstance(project).allEditors
+    .filterIsInstance<TextEditor>()
+    .forEach { fileEditor ->
+        codeVisionHost.invalidateProvider(
+            CodeVisionHost.LensInvalidateSignal(fileEditor.editor, listOf(TransactionCodeVisionProvider.ID))
+        )
+    }
 ```
 `DaemonCodeAnalyzer` не использовать — вызывает задержку.
 
