@@ -99,9 +99,11 @@ public class AgentMain {
                             .toURI()
             );
             if (agentJar.exists() && agentJar.getName().endsWith(".jar")) {
-                try (JarFile jf = new JarFile(agentJar)) {
-                    instrumentation.appendToSystemClassLoaderSearch(jf);
-                }
+                // Intentionally NOT closed: the Instrumentation spec requires the JarFile
+                // to remain open for the lifetime of the classloader.
+                @SuppressWarnings("resource")
+                JarFile jf = new JarFile(agentJar);
+                instrumentation.appendToSystemClassLoaderSearch(jf);
                 LOG.fine("[TransactionAgent] Added to system classloader: " + agentJar);
             }
         } catch (Exception e) {

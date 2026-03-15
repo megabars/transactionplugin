@@ -40,7 +40,7 @@ class TransactionTableModel : AbstractTableModel() {
             Column.TIME       -> timeFormat.format(Instant.ofEpochMilli(r.startTimeMs))
             Column.METHOD     -> "${r.className.substringAfterLast('.')}.${r.methodName}()"
             Column.DURATION   -> r.durationMs
-            Column.STATUS     -> r.status.name
+            Column.STATUS     -> r.status.displayName
             Column.BATCH      -> r.batchCount
             Column.PROPAGATION -> r.propagation
             Column.ISOLATION  -> r.isolationLevel

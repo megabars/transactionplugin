@@ -1,6 +1,9 @@
 package com.txplugin.plugin.model
 
-enum class TransactionStatus { COMMITTED, ROLLED_BACK }
+enum class TransactionStatus(val displayName: String) {
+    COMMITTED("COMMITTED"),
+    ROLLED_BACK("ROLLED BACK")
+}
 
 /**
  * Mirror of the agent's TransactionRecord.

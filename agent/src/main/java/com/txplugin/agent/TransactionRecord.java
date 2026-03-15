@@ -40,7 +40,7 @@ public class TransactionRecord {
 
     // ── SQL / JDBC ───────────────────────────────────────────────────────────
     public int sqlQueryCount;
-    /** Number of executeBatch() calls */
+    /** Number of rows added via addBatch() (not the number of executeBatch() calls) */
     public int batchCount;
     /** Up to MAX_SQL_QUERIES captured SQL strings */
     public List<String> sqlQueries = new ArrayList<>();

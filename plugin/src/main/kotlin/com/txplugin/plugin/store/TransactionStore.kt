@@ -15,6 +15,7 @@ import com.txplugin.plugin.model.TransactionRecord
 import com.txplugin.plugin.ui.TransactionCodeVisionProvider
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
@@ -42,6 +43,8 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     companion object {
         const val MAX_RECORDS = 1000
         const val DEFAULT_PORT = 17321
+        /** Max JSON line length accepted from agent (1 MiB); guards against OOM on malformed input */
+        private const val MAX_LINE_BYTES = 1_048_576
 
         fun getInstance(): TransactionStore =
             ApplicationManager.getApplication().getService(TransactionStore::class.java)
@@ -114,6 +117,11 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
                     log.warn("TransactionStore: failed to deserialize persisted record", e)
                 }
             }
+            // Evict oldest entries if persistence had more than MAX_RECORDS unique methods
+            if (latestByMethod.size > MAX_RECORDS) {
+                val iter = latestByMethod.iterator()
+                repeat(latestByMethod.size - MAX_RECORDS) { if (iter.hasNext()) { iter.next(); iter.remove() } }
+            }
         }
     }
 
@@ -151,17 +159,18 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
                 val client = ss.accept()
                 executor.submit { handleClient(client) }
             } catch (e: Exception) {
-                if (!ss.isClosed) continue
-                break
+                if (ss.isClosed) break
+                log.warn("TransactionStore: accept() error — retrying: ${e.message}")
             }
         }
     }
 
     private fun bindServerSocket(): ServerSocket {
+        val loopback = InetAddress.getLoopbackAddress()
         return try {
-            ServerSocket(DEFAULT_PORT)
+            ServerSocket(DEFAULT_PORT, 50, loopback)
         } catch (_: Exception) {
-            ServerSocket(0)
+            ServerSocket(0, 50, loopback)
         }
     }
 
@@ -170,6 +179,10 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
             socket.use { s ->
                 BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8)).use { reader ->
                     reader.lineSequence().forEach { line ->
+                        if (line.length > MAX_LINE_BYTES) {
+                            log.warn("TransactionStore: oversized line (${line.length} chars) — skipping")
+                            return@forEach
+                        }
                         val record = parseLine(line) ?: return@forEach
                         addRecord(record)
                     }
