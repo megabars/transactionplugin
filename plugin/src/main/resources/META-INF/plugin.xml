@@ -20,14 +20,9 @@
                 icon="/icons/transaction.svg"
                 factoryClass="com.txplugin.plugin.ui.TransactionToolWindowFactory"/>
 
-        <!-- Inlay hints above @Transactional methods -->
-        <codeInsight.inlayProvider
-                language="JAVA"
-                implementationClass="com.txplugin.plugin.ui.JavaTransactionInlayHintsProvider"/>
-
-        <codeInsight.inlayProvider
-                language="kotlin"
-                implementationClass="com.txplugin.plugin.ui.KotlinTransactionInlayHintsProvider"/>
+        <!-- Code Vision lens above @Transactional methods -->
+        <codeInsight.codeVisionProvider
+                implementation="com.txplugin.plugin.ui.TransactionCodeVisionProvider"/>
 
         <!-- Notification group for rollback alerts -->
         <notificationGroup
@@ -38,12 +33,10 @@
         <applicationService
                 serviceImplementation="com.txplugin.plugin.store.TransactionStore"/>
 
-    </extensions>
+        <!-- Inject -javaagent into Run Configurations -->
+        <java.programPatcher
+                implementation="com.txplugin.plugin.run.TransactionJavaProgramPatcher"/>
 
-    <extensions defaultExtensionNs="com.intellij">
-        <!-- Hook into Run Configurations to detect Spring Boot apps -->
-        <runConfigurationExtension
-                implementation="com.txplugin.plugin.run.SpringBootRunConfigurationExtension"/>
     </extensions>
 
 </idea-plugin>

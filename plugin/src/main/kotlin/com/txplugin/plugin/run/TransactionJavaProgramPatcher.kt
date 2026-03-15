@@ -1,0 +1,62 @@
+package com.txplugin.plugin.run
+
+import com.intellij.execution.Executor
+import com.intellij.execution.configurations.JavaParameters
+import com.intellij.execution.configurations.ModuleBasedConfiguration
+import com.intellij.execution.configurations.RunProfile
+import com.intellij.execution.runners.JavaProgramPatcher
+import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.extensions.PluginId
+import com.txplugin.plugin.store.TransactionStore
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+class TransactionJavaProgramPatcher : JavaProgramPatcher() {
+
+    private val log = thisLogger()
+
+    override fun patchJavaParameters(executor: Executor, configuration: RunProfile, javaParameters: JavaParameters) {
+        if (configuration !is ModuleBasedConfiguration<*, *>) return
+
+        val agentJar = resolveAgentJar() ?: run {
+            log.warn("TransactionPlugin: agent JAR not found — transaction hints disabled")
+            return
+        }
+
+        val port = TransactionStore.getInstance().port
+        val agentArg = "-javaagent:${agentJar.absolutePath}=port=$port"
+
+        if (javaParameters.vmParametersList.parameters.none { it.startsWith("-javaagent:${agentJar.absolutePath}") }) {
+            javaParameters.vmParametersList.add(agentArg)
+            log.info("TransactionPlugin: injected agent for '${configuration.name}', port=$port")
+        }
+    }
+
+    private fun resolveAgentJar(): File? {
+        // 1. Try plugin distribution directory (agent/ subfolder — production install)
+        val pluginDir = PluginManagerCore.getPlugin(PluginId.getId("com.txplugin"))?.pluginPath
+        if (pluginDir != null) {
+            val fromDir = pluginDir.resolve("agent/transaction-agent.jar").toFile()
+            if (fromDir.exists()) return fromDir
+        }
+
+        // 2. Extract from plugin JAR resources (dev / sandbox mode)
+        return extractFromResources()
+    }
+
+    private fun extractFromResources(): File? {
+        val resource = javaClass.getResourceAsStream("/agent/transaction-agent.jar") ?: return null
+        return try {
+            val tmp = Files.createTempFile("transaction-agent-", ".jar").toFile()
+            tmp.deleteOnExit()
+            resource.use { Files.copy(it, tmp.toPath(), StandardCopyOption.REPLACE_EXISTING) }
+            log.info("TransactionPlugin: agent extracted to ${tmp.absolutePath}")
+            tmp
+        } catch (e: Exception) {
+            log.warn("TransactionPlugin: failed to extract agent JAR: ${e.message}")
+            null
+        }
+    }
+}

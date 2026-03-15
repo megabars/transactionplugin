@@ -133,7 +133,7 @@ class TransactionStore {
             // 1. Notify Tool Window and other UI listeners
             listeners.forEach { it() }
 
-            // 2. Force inlay hints refresh — restart daemon for open Java/Kotlin files
+            // 2. Force CodeVision refresh — restart daemon for open Java/Kotlin files
             ProjectManager.getInstance().openProjects.forEach { project ->
                 if (project.isDisposed) return@forEach
                 val daemon = DaemonCodeAnalyzer.getInstance(project)

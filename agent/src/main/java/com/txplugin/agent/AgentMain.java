@@ -81,9 +81,21 @@ public class AgentMain {
         LOG.info("[TransactionAgent] Installed successfully");
     }
 
+    /**
+     * Adds the agent JAR to the system classloader search path.
+     *
+     * Spring Boot uses LaunchedURLClassLoader whose parent is the system classloader.
+     * Through normal parent delegation, Spring's classes can therefore resolve our
+     * helper classes (TransactionContext, SqlInterceptor, SocketReporter, etc.)
+     * that are inlined into the instrumented bytecode by Byte Buddy.
+     *
+     * NOTE: We intentionally do NOT use appendToBootstrapClassLoaderSearch because
+     * that would add Byte Buddy (already loaded by the system CL) a second time
+     * under the bootstrap CL, causing a LinkageError due to duplicate class
+     * definitions across two classloaders.
+     */
     private static void injectIntoBootstrap(Instrumentation instrumentation) {
         try {
-            // Get the path to this agent JAR (the fat JAR containing all agent classes)
             File agentJar = new File(
                     AgentMain.class.getProtectionDomain()
                             .getCodeSource()
@@ -91,13 +103,11 @@ public class AgentMain {
                             .toURI()
             );
             if (agentJar.exists() && agentJar.getName().endsWith(".jar")) {
-                instrumentation.appendToBootstrapClassLoaderSearch(new JarFile(agentJar));
-                LOG.info("[TransactionAgent] Injected into bootstrap classloader: " + agentJar);
-            } else {
-                LOG.warning("[TransactionAgent] Could not locate agent JAR for bootstrap injection: " + agentJar);
+                instrumentation.appendToSystemClassLoaderSearch(new JarFile(agentJar));
+                LOG.info("[TransactionAgent] Added to system classloader: " + agentJar);
             }
         } catch (Exception e) {
-            LOG.warning("[TransactionAgent] Bootstrap injection failed: " + e.getMessage());
+            LOG.warning("[TransactionAgent] System classloader injection failed: " + e.getMessage());
         }
     }
 
