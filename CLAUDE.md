@@ -62,7 +62,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 - `plugin/.../ui/TransactionToolWindowFactory.kt` — Tool Window: JBSplitter с таблицей и деталями
 - `plugin/.../ui/TransactionDetailPanel.kt` — правая панель: SQL, метрики, кнопка навигации к методу
 - `plugin/.../ui/TransactionTableModel.kt` — модель таблицы для `JBTable`
-- `plugin/.../model/TransactionRecord.kt` — data class + `inlayHintText` (computed property с `get()`, **не** stored field — иначе Gson через no-arg конструктор вычислит значение из дефолтов и оно не обновится)
+- `plugin/.../model/TransactionRecord.kt` — data class + `inlayHintText` (computed property с `get()`, **не** stored field — иначе Gson через no-arg конструктор вычислит значение из дефолтов и оно не обновится). `TransactionStatus` имеет `displayName` (`"COMMITTED"` / `"ROLLED BACK"` с пробелом) — используется в таблице вместо `name` для консистентного отображения с detail panel.
 
 ## Точки входа плагина (plugin.xml)
 
@@ -75,13 +75,13 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 ## Ключевые решения
 
-**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321)`; если занят — `ServerSocket(0)` (случайный порт). `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга.
+**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321, 50, InetAddress.getLoopbackAddress())`; если занят — `ServerSocket(0, 50, loopback)` (случайный порт). Bind только на loopback — агент подключается к `127.0.0.1`, внешние соединения невозможны. `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга. Входящие строки ограничены `MAX_LINE_BYTES = 1 MiB` — строки сверх лимита логируются и пропускаются.
 
 **Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking — не извлекается заново при каждом запуске.
 
 **Spring в агенте — `compileOnly`**: `spring-tx`/`spring-context` не входят в fat JAR агента — загружаются из classpath целевого приложения в рантайме.
 
-**Classloader**: `appendToSystemClassLoaderSearch` — НЕ `appendToBootstrapClassLoaderSearch` (вызывает LinkageError из-за дублирования Byte Buddy). Метод называется `injectIntoSystemClassLoader`.
+**Classloader**: `appendToSystemClassLoaderSearch` — НЕ `appendToBootstrapClassLoaderSearch` (вызывает LinkageError из-за дублирования Byte Buddy). Метод называется `injectIntoSystemClassLoader`. `JarFile` передаётся в `appendToSystemClassLoaderSearch` и **намеренно не закрывается** — спецификация `Instrumentation` требует, чтобы он жил на протяжении всего classloader-а.
 
 **Без Jackson в агенте**: ручная JSON-сериализация в `SocketReporter.java` — Jackson недоступен через system classloader в Spring Boot fat JAR. Escape-логика обрабатывает `"`, `\`, `\n`, `\r`, `\t` и unicode < 0x20 (SQL может содержать любые символы). `connectAndStream()` использует peek→flush→poll: запись удаляется из буфера только после успешного `flush()` — при обрыве соединения она остаётся в буфере и отправится после переподключения. Poll защищён проверкой идентичности (`peekFirst() == record`) — если `enqueue()` вытеснил запись во время записи в сокет, мы не удаляем следующую (ещё неотправленную).
 
