@@ -132,15 +132,15 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         titleLabel.foreground = statusColor
 
         // Update pre-created labels in-place (no removeAll, no flickering)
-        metaValues["Method"]!!.text      = "${record.className}.${record.methodName}()"
-        metaValues["Time"]!!.text        = "${dateFormat.format(Instant.ofEpochMilli(record.startTimeMs))} → ${dateFormat.format(Instant.ofEpochMilli(record.endTimeMs))}"
-        metaValues["Duration"]!!.text    = "${record.durationMs} ms"
-        metaValues["Thread"]!!.text      = record.threadName
-        metaValues["Propagation"]!!.text = record.propagation
-        metaValues["Isolation"]!!.text   = record.isolationLevel
-        metaValues["ReadOnly"]!!.text    = record.readOnly.toString()
-        metaValues["Timeout"]!!.text     = if (record.timeout < 0) "none" else "${record.timeout}s"
-        metaValues["Batch rows"]!!.text  = if (record.batchCount > 0) "${record.batchCount}" else "—"
+        metaValues["Method"]?.text      = "${record.className}.${record.methodName}()"
+        metaValues["Time"]?.text        = "${dateFormat.format(Instant.ofEpochMilli(record.startTimeMs))} → ${dateFormat.format(Instant.ofEpochMilli(record.endTimeMs))}"
+        metaValues["Duration"]?.text    = "${record.durationMs} ms"
+        metaValues["Thread"]?.text      = record.threadName
+        metaValues["Propagation"]?.text = record.propagation
+        metaValues["Isolation"]?.text   = record.isolationLevel
+        metaValues["ReadOnly"]?.text    = record.readOnly.toString()
+        metaValues["Timeout"]?.text     = if (record.timeout < 0) "none" else "${record.timeout}s"
+        metaValues["Batch rows"]?.text  = if (record.batchCount > 0) "${record.batchCount}" else "—"
 
         sqlArea.text = if (record.sqlQueries.isEmpty()) "(none captured)"
                        else record.sqlQueries.joinToString("\n\n")

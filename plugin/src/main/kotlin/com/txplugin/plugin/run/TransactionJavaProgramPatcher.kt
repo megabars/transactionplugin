@@ -42,16 +42,23 @@ class TransactionJavaProgramPatcher : JavaProgramPatcher() {
             if (fromDir.exists()) return fromDir
         }
 
-        // 2. Extract from plugin JAR resources (dev / sandbox mode) — cached across launches
-        return extractedAgentJar ?: synchronized(Companion) {
-            // Double-checked locking: re-check inside synchronized in case another thread extracted first
-            extractedAgentJar ?: extractFromResources().also { extractedAgentJar = it }
+        // 2. Extract from plugin JAR resources (dev / sandbox mode) — cached across launches.
+        // extractionAttempted flag ensures we don't retry on failure (avoids repeated temp file creation).
+        if (extractionAttempted) return extractedAgentJar
+        return synchronized(Companion) {
+            if (!extractionAttempted) {
+                extractedAgentJar = extractFromResources()
+                extractionAttempted = true
+            }
+            extractedAgentJar
         }
     }
 
     companion object {
         /** Cached temp file so we don't re-extract on every Run Configuration launch */
         @Volatile private var extractedAgentJar: File? = null
+        /** Set to true after first extraction attempt (success or failure) to avoid repeated temp files */
+        @Volatile private var extractionAttempted: Boolean = false
 
         private fun extractFromResources(): File? {
             val log = thisLogger()

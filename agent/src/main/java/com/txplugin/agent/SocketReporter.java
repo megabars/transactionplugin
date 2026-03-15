@@ -55,7 +55,7 @@ public class SocketReporter {
         synchronized (buffer) {
             if (buffer.size() >= BUFFER_CAPACITY) {
                 buffer.pollFirst();
-                LOG.fine("[TX] Ring buffer full — dropped oldest record (total dropped: " + droppedCount.incrementAndGet() + ")");
+                LOG.warning("[TX] Ring buffer full — dropped oldest record (total dropped: " + droppedCount.incrementAndGet() + ")");
             }
             buffer.addLast(record);
             buffer.notifyAll();
@@ -68,7 +68,7 @@ public class SocketReporter {
                 try {
                     connectAndStream();
                 } catch (Exception e) {
-                    LOG.fine("Socket reporter disconnected: " + e.getMessage());
+                    LOG.warning("Socket reporter disconnected: " + e.getMessage());
                 }
                 try { Thread.sleep(RECONNECT_MS); }
                 catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }

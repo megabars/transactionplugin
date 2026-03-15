@@ -42,6 +42,9 @@ public class SqlInterceptor {
      * SQL is NOT removed here so it remains available for subsequent addBatch() calls.
      * Params are cleared after capture so the next row starts fresh.
      */
+    /** Max batch rows to accumulate params for; prevents OOM on huge bulk inserts. */
+    private static final int MAX_BATCH_ROWS = 1000;
+
     public static void onAddBatch() {
         // Skip if this is a proxy double-call for the same row
         if (Boolean.TRUE.equals(BATCH_ROW_CAPTURED.get())) return;
@@ -53,8 +56,11 @@ public class SqlInterceptor {
 
         // Accumulate formatted params for this row; consolidated entry is built in executeBatch
         java.util.LinkedHashMap<Integer, Object> params = PREPARED_PARAMS.get();
-        java.util.List<String> formatted = formatParams(params);
-        BATCH_PARAMS_LIST.get().add(formatted.isEmpty() ? "" : "[" + String.join(", ", formatted) + "]");
+        java.util.List<String> batchList = BATCH_PARAMS_LIST.get();
+        if (batchList.size() < MAX_BATCH_ROWS) {
+            java.util.List<String> formatted = formatParams(params);
+            batchList.add(formatted.isEmpty() ? "" : "[" + String.join(", ", formatted) + "]");
+        }
 
         // Clear params for the next row; SQL stays until executeBatch() cleans up
         if (params != null) params.clear();
@@ -81,7 +87,7 @@ public class SqlInterceptor {
             PREPARED_SQL.remove();
             PREPARED_PARAMS.remove();
             BATCH_ROW_CAPTURED.remove();
-            BATCH_PARAMS_LIST.get().clear();
+            BATCH_PARAMS_LIST.remove(); // remove() instead of clear() to free ArrayList from pooled threads
         }
         depth[0]++;
     }
@@ -117,7 +123,7 @@ public class SqlInterceptor {
         PREPARED_SQL.set(sql);
         PREPARED_PARAMS.set(new java.util.LinkedHashMap<>());
         BATCH_ROW_CAPTURED.remove();
-        BATCH_PARAMS_LIST.get().clear();
+        BATCH_PARAMS_LIST.remove(); // remove() to free old ArrayList and let withInitial create a fresh one
     }
 
     /**

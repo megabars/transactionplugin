@@ -35,7 +35,7 @@ class TransactionTableModel : AbstractTableModel() {
     override fun getColumnName(col: Int) = Column.entries[col].title
 
     override fun getValueAt(row: Int, col: Int): Any {
-        val r = rows[row]
+        val r = rows.getOrNull(row) ?: return ""
         return when (Column.entries[col]) {
             Column.TIME       -> timeFormat.format(Instant.ofEpochMilli(r.startTimeMs))
             Column.METHOD     -> "${r.className.substringAfterLast('.')}.${r.methodName}()"
