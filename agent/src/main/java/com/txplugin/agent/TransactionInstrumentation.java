@@ -97,9 +97,13 @@ public class TransactionInstrumentation {
                 // Check if this is a nested method participating in an outer transaction.
                 // REQUIRED/SUPPORTS/MANDATORY join an existing TX — no separate DB transaction.
                 // REQUIRES_NEW and NESTED always start a genuinely new TX → report separately.
+                // NOT_SUPPORTED and NEVER suspend/reject the outer TX and run without one —
+                // their SQL must NOT be merged into the outer context even if a parent exists.
                 TransactionContext parent = TransactionContext.current();
                 boolean isNewTransaction = "REQUIRES_NEW".equals(ctx.propagation)
-                        || "NESTED".equals(ctx.propagation);
+                        || "NESTED".equals(ctx.propagation)
+                        || "NOT_SUPPORTED".equals(ctx.propagation)
+                        || "NEVER".equals(ctx.propagation);
 
                 if (parent != null && !isNewTransaction) {
                     // Merge inner SQL into parent. The actual DB work (Hibernate flush, batch)

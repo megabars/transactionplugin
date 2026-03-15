@@ -49,8 +49,8 @@ class TransactionTableModel : AbstractTableModel() {
     }
 
     override fun getColumnClass(col: Int): Class<*> = when (Column.entries[col]) {
-        Column.DURATION -> Long::class.java
-        Column.BATCH    -> Int::class.java
+        Column.DURATION -> Long::class.javaObjectType    // java.lang.Long — Comparable, сортируется числово
+        Column.BATCH    -> Int::class.javaObjectType     // java.lang.Integer — Comparable, сортируется числово
         else            -> String::class.java
     }
 }

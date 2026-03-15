@@ -49,8 +49,9 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
 
     private val log = thisLogger()
     private val gson = Gson()
+    private val ioThreadIndex = java.util.concurrent.atomic.AtomicInteger()
     private val executor = Executors.newCachedThreadPool { r ->
-        Thread(r, "tx-store-io").also { it.isDaemon = true }
+        Thread(r, "tx-store-io-${ioThreadIndex.incrementAndGet()}").also { it.isDaemon = true }
     }
 
     /** Ring buffer — oldest entries are dropped when full */
@@ -106,7 +107,7 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
                 try {
                     val r = gson.fromJson(json, TransactionRecord::class.java)
                     if (r != null) {
-                        records.addLast(r)
+                        if (records.size < MAX_RECORDS) records.addLast(r)
                         latestByMethod[r.methodKey] = r
                     }
                 } catch (e: Exception) {

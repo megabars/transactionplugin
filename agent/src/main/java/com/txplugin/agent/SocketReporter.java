@@ -95,8 +95,12 @@ public class SocketReporter {
                 w.write(toJson(record));
                 w.newLine();
                 w.flush();
-                // Удаляем только после успешной записи в сокет
-                synchronized (buffer) { buffer.pollFirst(); }
+                // Удаляем только после успешной записи в сокет.
+                // Проверяем идентичность: если запись была вытеснена enqueue() пока мы
+                // писали в сокет, не удаляем — иначе мы удалим следующую (неотправленную) запись.
+                synchronized (buffer) {
+                    if (buffer.peekFirst() == record) buffer.pollFirst();
+                }
             }
         }
     }

@@ -80,7 +80,7 @@ public class SqlInterceptor {
                 String sql = PREPARED_SQL.get();
                 java.util.List<String> paramsList = BATCH_PARAMS_LIST.get();
                 if (sql != null && ctx.sqlQueries.size() < TransactionRecord.MAX_SQL_QUERIES) {
-                    ctx.sqlQueries.add(buildBatchEntry(sql, paramsList));
+                    ctx.sqlQueries.add(buildBatchEntry(sql, ctx.batchCount, paramsList));
                 }
                 ctx.sqlQueryCount++;
             }
@@ -181,9 +181,14 @@ public class SqlInterceptor {
                 : sql + "\n  [" + String.join(", ", params) + "]";
     }
 
-    private static String buildBatchEntry(String sql, java.util.List<String> paramsList) {
+    private static String buildBatchEntry(String sql, int totalRows, java.util.List<String> paramsList) {
         StringBuilder sb = new StringBuilder(sql);
-        sb.append("  [batch: ").append(paramsList.size()).append(" rows]");
+        sb.append("  [batch: ").append(totalRows).append(" rows");
+        if (paramsList.size() < totalRows) {
+            // params were capped at MAX_BATCH_ROWS — tell the user how many are shown
+            sb.append(", params for first ").append(paramsList.size()).append(" shown");
+        }
+        sb.append("]");
         for (String params : paramsList) {
             if (!params.isEmpty()) {
                 sb.append("\n  ").append(params);
