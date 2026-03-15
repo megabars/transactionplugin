@@ -83,7 +83,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Classloader**: `appendToSystemClassLoaderSearch` — НЕ `appendToBootstrapClassLoaderSearch` (вызывает LinkageError из-за дублирования Byte Buddy). Метод называется `injectIntoSystemClassLoader`.
 
-**Без Jackson в агенте**: ручная JSON-сериализация в `SocketReporter.java` — Jackson недоступен через system classloader в Spring Boot fat JAR. Escape-логика обрабатывает `"`, `\`, `\n`, `\r`, `\t` и unicode < 0x20 (SQL может содержать любые символы). `connectAndStream()` использует peek→flush→poll: запись удаляется из буфера только после успешного `flush()` — при обрыве соединения она остаётся в буфере и отправится после переподключения.
+**Без Jackson в агенте**: ручная JSON-сериализация в `SocketReporter.java` — Jackson недоступен через system classloader в Spring Boot fat JAR. Escape-логика обрабатывает `"`, `\`, `\n`, `\r`, `\t` и unicode < 0x20 (SQL может содержать любые символы). `connectAndStream()` использует peek→flush→poll: запись удаляется из буфера только после успешного `flush()` — при обрыве соединения она остаётся в буфере и отправится после переподключения. Poll защищён проверкой идентичности (`peekFirst() == record`) — если `enqueue()` вытеснил запись во время записи в сокет, мы не удаляем следующую (ещё неотправленную).
 
 **SqlInterceptor ThreadLocal cleanup**: `getPreparedSql()` вызывает `.remove()` сразу после `.get()` — не случайность. Без этого pooled-потоки увидят SQL от предыдущего PreparedStatement того же потока. Для batch: SQL удаляется в `onBatchExecuteEnter()`, а не в `onAddBatch()` — SQL должен жить через все вызовы `addBatch()`.
 
@@ -97,6 +97,8 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 **`batchCount`**: количество строк добавленных через `addBatch()` (не количество вызовов `executeBatch()`). Отображается в Transaction Info и всплывающем окне хинта. `sqlQueryCount` инкрементируется один раз в `onBatchExecuteEnter()` (не в `onAddBatch()`) — один `executeBatch()` = один SQL-оператор.
 
 **Byte Buddy advice**: два отдельных класса для enter/exit (требование Byte Buddy). Аргументы `invokeWithinTransaction(Method, Class<?>, InvocationCallback)` — индексы 0 и 1, не 1 и 2. `doCommit`/`doRollback` — абстрактные методы, Byte Buddy их пропускает; статус транзакции определяется через `@Advice.Thrown` в exit advice. `SetParameterAdvice` применяется с `Assigner.Typing.DYNAMIC` чтобы autobox примитивы (int, long, boolean и т.д.) в Object.
+
+**Propagation и слияние SQL**: в exit advice `isNewTransaction` включает `REQUIRES_NEW`, `NESTED`, `NOT_SUPPORTED`, `NEVER` — все они получают отдельный `TransactionRecord`. `REQUIRED`, `SUPPORTS`, `MANDATORY` при наличии parent-контекста сливают SQL в родителя и отдельную запись не отправляют. `NOT_SUPPORTED` и `NEVER` **обязаны** быть в `isNewTransaction` — иначе их SQL (выполняющийся вне транзакции) ошибочно атрибутируется внешней TX.
 
 **Определение статуса транзакции**: если `thrown == null` → COMMITTED; если `thrown != null` → проверяем `noRollbackFor`/`noRollbackForClassName` из `@Transactional` (сохранены в `TransactionContext`) через `committedDespiteException()` — если исключение входит в список исключений из отката, статус COMMITTED, иначе ROLLED_BACK. Это корректно обрабатывает `@Transactional(noRollbackFor = SomeException.class)`.
 
@@ -118,7 +120,7 @@ FileEditorManager.getInstance(project).allEditors.toList()
 
 **Персистентность**: `TransactionStore` реализует `PersistentStateComponent`, сохраняет последнюю транзакцию каждого метода в `transactionStore.xml`.
 
-**Nested TX**: `TransactionContext` поддерживает стек — SQL всегда попадает в innermost активную транзакцию.
+**Nested TX**: `TransactionContext` поддерживает стек — SQL всегда попадает в innermost активную транзакцию. При pop inner-метода: если propagation входит в `isNewTransaction` (`REQUIRES_NEW`, `NESTED`, `NOT_SUPPORTED`, `NEVER`) — отправляем отдельную запись; иначе — мёржим в parent и возвращаемся без отправки.
 
 ## Формат хинта над методом
 
@@ -146,7 +148,14 @@ INSERT INTO users (id, name) VALUES (?, ?)  [batch: 3 rows]
   [1='3', 2='Charlie']
 ```
 
-Параметры захватываются через `SetParameterAdvice` → `onSetParameter()`. Для batch: `onAddBatch()` накапливает параметры в `BATCH_PARAMS_LIST` (ThreadLocal), `onBatchExecuteEnter()` при depth==1 собирает одну запись через `buildBatchEntry()` и добавляет в `ctx.sqlQueries`. Значения обрезаются до 100 символов.
+При превышении `MAX_BATCH_ROWS = 1000` параметры усекаются, и заголовок содержит пометку:
+```
+INSERT INTO users (id, name) VALUES (?, ?)  [batch: 1500 rows, params for first 1000 shown]
+  [1='1', 2='Alice']
+  ...
+```
+
+Параметры захватываются через `SetParameterAdvice` → `onSetParameter()`. Для batch: `onAddBatch()` накапливает параметры в `BATCH_PARAMS_LIST` (ThreadLocal), `onBatchExecuteEnter()` при depth==1 собирает одну запись через `buildBatchEntry(sql, ctx.batchCount, paramsList)` и добавляет в `ctx.sqlQueries`. Реальное число строк берётся из `ctx.batchCount`, а не из `paramsList.size()` (который ограничен `MAX_BATCH_ROWS`). Значения обрезаются до 100 символов.
 
 ## Логирование агента
 
