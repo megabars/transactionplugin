@@ -8,6 +8,8 @@ data class TransactionRecord(
     val transactionId: String = "",
     val className: String = "",
     val methodName: String = "",
+    /** Comma-separated simple type names, e.g. "String,int,List". Empty for no-arg methods. */
+    val parameterTypes: String = "",
     val lineNumber: Int = 0,
 
     val startTimeMs: Long = 0,
@@ -39,8 +41,8 @@ data class TransactionRecord(
     val isCommitted: Boolean get() = status == "COMMITTED"
     val isRolledBack: Boolean get() = status == "ROLLED_BACK"
 
-    /** Short key used to match records to source methods */
-    val methodKey: String get() = "$className#$methodName"
+    /** Short key used to match records to source methods, includes parameter types for overload disambiguation */
+    val methodKey: String get() = "$className#$methodName($parameterTypes)"
 
     /** One-line summary for inlay hint */
     val inlayHintText: String get() = buildString {

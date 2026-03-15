@@ -15,6 +15,8 @@ public class TransactionRecord {
     public String className;
     /** Simple method name, e.g. "processOrder" */
     public String methodName;
+    /** Comma-separated simple parameter type names, e.g. "String,int,List" */
+    public String parameterTypes = "";
     /** Best-effort source line of the @Transactional method */
     public int lineNumber;
 

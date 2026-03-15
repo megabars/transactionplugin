@@ -12,13 +12,13 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.txplugin.plugin.model.TransactionRecord
 import com.txplugin.plugin.store.TransactionStore
 import java.awt.event.MouseEvent
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * Shows the last transaction result as a code vision lens above each
- * @Transactional method. Uses the modern CodeVisionProvider API (same as
- * method-timer plugin).
+ * @Transactional method. Uses the modern CodeVisionProvider API.
  *
  * Refresh is triggered via CodeVisionHost.invalidateProvider() from
  * TransactionStore whenever new transaction data arrives over the socket.
@@ -27,7 +27,10 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
 
     companion object {
         const val ID = "com.txplugin.transactions"
-        private val DATE_FORMAT = SimpleDateFormat("HH:mm:ss")
+
+        // DateTimeFormatter is thread-safe (unlike SimpleDateFormat)
+        private val TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
+
         private const val TRANSACTIONAL_FQN =
             "org.springframework.transaction.annotation.Transactional"
     }
@@ -54,7 +57,8 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
                 if (!isTransactional(method)) return@forEach
 
                 val className = method.containingClass?.qualifiedName ?: return@forEach
-                val record = store.getLatestForMethod("$className#${method.name}") ?: return@forEach
+                val methodKey = buildMethodKey(className, method)
+                val record = store.getLatestForMethod(methodKey) ?: return@forEach
 
                 val textRange = method.nameIdentifier?.textRange ?: return@forEach
                 val label = record.inlayHintText
@@ -76,8 +80,20 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
         method.hasAnnotation(TRANSACTIONAL_FQN) ||
         method.containingClass?.hasAnnotation(TRANSACTIONAL_FQN) == true
 
+    /**
+     * Builds the methodKey matching the agent's format: "className#methodName(ParamType1,ParamType2)".
+     * Uses raw (erased) simple type names to match what Class.getSimpleName() returns in the agent.
+     */
+    private fun buildMethodKey(className: String, method: PsiMethod): String {
+        val paramTypes = method.parameterList.parameters.joinToString(",") { param ->
+            // Strip generics and take simple name to match agent's Class.getSimpleName()
+            param.type.canonicalText.substringBefore('<').substringAfterLast('.')
+        }
+        return "$className#${method.name}($paramTypes)"
+    }
+
     private fun handleClick(event: MouseEvent?, editor: Editor, record: TransactionRecord) {
-        val time = DATE_FORMAT.format(Date(record.startTimeMs))
+        val time = TIME_FORMAT.format(Instant.ofEpochMilli(record.startTimeMs))
         val message = buildString {
             appendLine("Method:     ${record.className}.${record.methodName}()")
             appendLine("Status:     ${record.status}")
@@ -101,7 +117,6 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
             }
         }.trimEnd()
 
-        // Show detail popup AND bring up the Tool Window
         val popup = JBPopupFactory.getInstance().createMessage(message)
         if (event != null) {
             popup.showInScreenCoordinates(editor.contentComponent, event.locationOnScreen)

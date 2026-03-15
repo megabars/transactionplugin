@@ -14,6 +14,7 @@ public class TransactionContext {
     public final String transactionId = UUID.randomUUID().toString();
     public String className;
     public String methodName;
+    public String parameterTypes = "";
     public int lineNumber;
 
     public final long startTimeMs = System.currentTimeMillis();
@@ -75,6 +76,7 @@ public class TransactionContext {
         r.transactionId       = transactionId;
         r.className           = className;
         r.methodName          = methodName;
+        r.parameterTypes      = parameterTypes;
         r.lineNumber          = lineNumber;
         r.startTimeMs         = startTimeMs;
         r.endTimeMs           = System.currentTimeMillis();

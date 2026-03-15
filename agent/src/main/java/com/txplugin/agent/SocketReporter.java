@@ -100,6 +100,7 @@ public class SocketReporter {
         str(sb,  "transactionId",  r.transactionId);
         str(sb,  "className",      r.className);
         str(sb,  "methodName",     r.methodName);
+        str(sb,  "parameterTypes", r.parameterTypes);
         num(sb,  "lineNumber",     r.lineNumber);
         num(sb,  "startTimeMs",    r.startTimeMs);
         num(sb,  "endTimeMs",      r.endTimeMs);

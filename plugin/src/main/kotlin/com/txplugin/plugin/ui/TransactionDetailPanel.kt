@@ -1,9 +1,8 @@
 package com.txplugin.plugin.ui
 
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.fileEditor.OpenFileDescriptor
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.PsiMethod
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
@@ -14,17 +13,21 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.FlowLayout
 import java.awt.Font
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.swing.*
 
 /**
  * Panel displaying all details of a single [TransactionRecord].
  * Embedded in the Tool Window split pane and updated on selection change.
+ *
+ * Meta labels are pre-created once to avoid flickering on every selection change.
  */
 class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout()) {
 
-    private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS")
+    // DateTimeFormatter is thread-safe
+    private val dateFormat = DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
 
     // Top section
     private val titleLabel = JBLabel("Select a transaction").also {
@@ -32,8 +35,20 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         it.border = BorderFactory.createEmptyBorder(4, 8, 4, 8)
     }
 
-    // Meta section (status, timing, tx params)
-    private val metaPanel = JPanel().also { it.layout = BoxLayout(it, BoxLayout.Y_AXIS) }
+    // Pre-created value labels — updated in-place to avoid removeAll() flickering
+    private val metaValues = linkedMapOf(
+        "Method"      to JBLabel(),
+        "Time"        to JBLabel(),
+        "Duration"    to JBLabel(),
+        "Thread"      to JBLabel(),
+        "Propagation" to JBLabel(),
+        "Isolation"   to JBLabel(),
+        "ReadOnly"    to JBLabel(),
+        "Timeout"     to JBLabel(),
+        "SQL queries" to JBLabel(),
+        "Entities"    to JBLabel()
+    )
+    private val metaPanel = buildMetaPanel()
 
     // SQL list
     private val sqlArea = JBTextArea(8, 60).also {
@@ -57,6 +72,17 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
 
     init {
         buildLayout()
+    }
+
+    private fun buildMetaPanel(): JPanel {
+        val panel = JPanel().also { it.layout = BoxLayout(it, BoxLayout.Y_AXIS) }
+        metaValues.forEach { (label, valueLabel) ->
+            val row = JPanel(FlowLayout(FlowLayout.LEFT, 4, 1))
+            row.add(JBLabel("$label:").also { it.font = it.font.deriveFont(Font.BOLD) })
+            row.add(valueLabel)
+            panel.add(row)
+        }
+        return panel
     }
 
     private fun buildLayout() {
@@ -91,7 +117,7 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
 
     fun showRecord(record: TransactionRecord) {
         currentRecord = record
-        navigateButton.isEnabled = record.lineNumber > 0 || record.className.isNotEmpty()
+        navigateButton.isEnabled = record.className.isNotEmpty()
 
         val statusColor = if (record.isCommitted) JBColor(Color(0, 130, 0), Color(100, 200, 100))
                           else JBColor.RED
@@ -102,25 +128,21 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         }
         titleLabel.foreground = statusColor
 
-        // Meta rows
-        metaPanel.removeAll()
-        metaRow("Method",      "${record.className}.${record.methodName}()")
-        metaRow("Time",        "${dateFormat.format(Date(record.startTimeMs))} → ${dateFormat.format(Date(record.endTimeMs))}")
-        metaRow("Duration",    "${record.durationMs} ms")
-        metaRow("Thread",      record.threadName)
-        metaRow("Propagation", record.propagation)
-        metaRow("Isolation",   record.isolationLevel)
-        metaRow("ReadOnly",    record.readOnly.toString())
-        metaRow("Timeout",     if (record.timeout < 0) "none" else "${record.timeout}s")
-        metaRow("SQL queries", "${record.sqlQueryCount}  |  batches: ${record.batchCount}")
-        metaRow("Entities",    "↑ inserted: ${record.insertCount}   ✎ updated: ${record.updateCount}   ↓ deleted: ${record.deleteCount}")
-        metaPanel.revalidate()
+        // Update pre-created labels in-place (no removeAll, no flickering)
+        metaValues["Method"]!!.text      = "${record.className}.${record.methodName}()"
+        metaValues["Time"]!!.text        = "${dateFormat.format(Instant.ofEpochMilli(record.startTimeMs))} → ${dateFormat.format(Instant.ofEpochMilli(record.endTimeMs))}"
+        metaValues["Duration"]!!.text    = "${record.durationMs} ms"
+        metaValues["Thread"]!!.text      = record.threadName
+        metaValues["Propagation"]!!.text = record.propagation
+        metaValues["Isolation"]!!.text   = record.isolationLevel
+        metaValues["ReadOnly"]!!.text    = record.readOnly.toString()
+        metaValues["Timeout"]!!.text     = if (record.timeout < 0) "none" else "${record.timeout}s"
+        metaValues["SQL queries"]!!.text = "${record.sqlQueryCount}  |  batches: ${record.batchCount}"
+        metaValues["Entities"]!!.text    = "↑ inserted: ${record.insertCount}   ✎ updated: ${record.updateCount}   ↓ deleted: ${record.deleteCount}"
 
-        // SQL
         sqlArea.text = if (record.sqlQueries.isEmpty()) "(none captured)"
                        else record.sqlQueries.joinToString("\n\n")
 
-        // Exception
         exceptionArea.text = when {
             record.exceptionType != null -> buildString {
                 append("${record.exceptionType}: ${record.exceptionMessage ?: ""}\n\n")
@@ -131,13 +153,6 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
 
         revalidate()
         repaint()
-    }
-
-    private fun metaRow(label: String, value: String) {
-        val row = JPanel(FlowLayout(FlowLayout.LEFT, 4, 1))
-        row.add(JBLabel("$label:").also { it.font = it.font.deriveFont(Font.BOLD) })
-        row.add(JBLabel(value))
-        metaPanel.add(row)
     }
 
     private fun sectionHeader(title: String): JComponent {
@@ -151,13 +166,32 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         return label
     }
 
+    /**
+     * Navigates to the source of the current record using PSI.
+     * Looks up the PsiClass and then the specific PsiMethod by name,
+     * avoiding reliance on the (unreliable) lineNumber field.
+     * Falls back to allScope if the class is not found in project sources.
+     */
     private fun navigateToSource() {
         val record = currentRecord ?: return
         val facade = JavaPsiFacade.getInstance(project)
-        val psiClass = facade.findClass(record.className, GlobalSearchScope.allScope(project))
+        val projectScope = GlobalSearchScope.projectScope(project)
+        val allScope = GlobalSearchScope.allScope(project)
+
+        val psiClass = facade.findClass(record.className, projectScope)
+            ?: facade.findClass(record.className, allScope)
             ?: return
-        val vFile: VirtualFile = psiClass.containingFile?.virtualFile ?: return
-        val line = if (record.lineNumber > 0) record.lineNumber - 1 else 0
-        OpenFileDescriptor(project, vFile, line, 0).navigate(true)
+
+        // Find the specific overload matching the record's parameter types
+        val targetMethod: PsiMethod? = psiClass.findMethodsByName(record.methodName, true)
+            .firstOrNull { method ->
+                val paramTypes = method.parameterList.parameters.joinToString(",") { param ->
+                    param.type.canonicalText.substringBefore('<').substringAfterLast('.')
+                }
+                paramTypes == record.parameterTypes
+            }
+            ?: psiClass.findMethodsByName(record.methodName, true).firstOrNull()
+
+        (targetMethod ?: psiClass).navigate(true)
     }
 }

@@ -29,7 +29,7 @@ import java.util.concurrent.Executors
     storages = [Storage("transactionStore.xml")]
 )
 @Service(Service.Level.APP)
-class TransactionStore : PersistentStateComponent<TransactionStore.State> {
+class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.intellij.openapi.Disposable {
 
     /** Persistent state: last transaction JSON per methodKey */
     data class State(
@@ -51,6 +51,10 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State> {
 
     /** Ring buffer — oldest entries are dropped when full */
     private val records = ArrayDeque<TransactionRecord>(MAX_RECORDS)
+
+    /** O(1) lookup: methodKey → last record for that method */
+    private val latestByMethod = HashMap<String, TransactionRecord>()
+
     private val lock = Any()
 
     /** Listeners notified on EDT whenever new records arrive */
@@ -71,8 +75,7 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State> {
     override fun getState(): State {
         val map = mutableMapOf<String, String>()
         synchronized(lock) {
-            // Store only the last record per method
-            records.forEach { r -> map[r.methodKey] = gson.toJson(r) }
+            latestByMethod.forEach { (key, r) -> map[key] = gson.toJson(r) }
         }
         return State(map)
     }
@@ -80,10 +83,14 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State> {
     override fun loadState(state: State) {
         synchronized(lock) {
             records.clear()
+            latestByMethod.clear()
             state.lastByMethod.values.forEach { json ->
                 try {
                     val r = gson.fromJson(json, TransactionRecord::class.java)
-                    if (r != null) records.addLast(r)
+                    if (r != null) {
+                        records.addLast(r)
+                        latestByMethod[r.methodKey] = r
+                    }
                 } catch (_: Exception) { }
             }
         }
@@ -93,12 +100,27 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State> {
 
     fun getRecords(): List<TransactionRecord> = synchronized(lock) { records.toList() }
 
-    /** Returns last known transaction for the given className#methodName key */
+    /** Returns last known transaction for the given methodKey — O(1) */
     fun getLatestForMethod(methodKey: String): TransactionRecord? =
-        synchronized(lock) { records.lastOrNull { it.methodKey == methodKey } }
+        synchronized(lock) { latestByMethod[methodKey] }
 
     fun addListener(listener: () -> Unit) = listeners.add(listener)
     fun removeListener(listener: () -> Unit) = listeners.remove(listener)
+
+    fun clear() {
+        synchronized(lock) {
+            records.clear()
+            latestByMethod.clear()
+        }
+        notifyListeners()
+    }
+
+    // ── Disposable ────────────────────────────────────────────────────────────
+
+    override fun dispose() {
+        serverSocket?.close()
+        executor.shutdownNow()
+    }
 
     // ── Server ────────────────────────────────────────────────────────────────
 
@@ -158,6 +180,7 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State> {
         synchronized(lock) {
             if (records.size >= MAX_RECORDS) records.removeFirst()
             records.addLast(record)
+            latestByMethod[record.methodKey] = record
         }
         notifyListeners()
     }
@@ -175,10 +198,5 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State> {
                 )
             }
         }
-    }
-
-    fun dispose() {
-        serverSocket?.close()
-        executor.shutdownNow()
     }
 }

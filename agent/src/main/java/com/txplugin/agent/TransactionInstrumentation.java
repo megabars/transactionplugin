@@ -43,6 +43,17 @@ public class TransactionInstrumentation {
                         ctx.className = m.getDeclaringClass().getName();
                     }
 
+                    // Build comma-separated simple type names for overload disambiguation
+                    Class<?>[] pts = m.getParameterTypes();
+                    if (pts.length > 0) {
+                        StringBuilder ptSb = new StringBuilder();
+                        for (int i = 0; i < pts.length; i++) {
+                            if (i > 0) ptSb.append(',');
+                            ptSb.append(pts[i].getSimpleName());
+                        }
+                        ctx.parameterTypes = ptSb.toString();
+                    }
+
                     // Read @Transactional metadata
                     try {
                         org.springframework.transaction.annotation.Transactional tx =
@@ -188,7 +199,7 @@ public class TransactionInstrumentation {
         }
 
         // Hibernate SessionFactory (detect SessionFactoryImpl construction)
-        if (name.endsWith("SessionFactoryImpl") || name.endsWith("JdbcServicesImpl")) {
+        if (name.endsWith("SessionFactoryImpl")) {
             builder = builder.visit(Advice.to(SessionFactoryAdvice.class)
                     .on(ElementMatchers.isConstructor()));
         }

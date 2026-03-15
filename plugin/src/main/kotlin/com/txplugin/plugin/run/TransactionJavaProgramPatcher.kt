@@ -42,21 +42,28 @@ class TransactionJavaProgramPatcher : JavaProgramPatcher() {
             if (fromDir.exists()) return fromDir
         }
 
-        // 2. Extract from plugin JAR resources (dev / sandbox mode)
-        return extractFromResources()
+        // 2. Extract from plugin JAR resources (dev / sandbox mode) — cached across launches
+        return extractedAgentJar ?: extractFromResources().also { extractedAgentJar = it }
     }
 
-    private fun extractFromResources(): File? {
-        val resource = javaClass.getResourceAsStream("/agent/transaction-agent.jar") ?: return null
-        return try {
-            val tmp = Files.createTempFile("transaction-agent-", ".jar").toFile()
-            tmp.deleteOnExit()
-            resource.use { Files.copy(it, tmp.toPath(), StandardCopyOption.REPLACE_EXISTING) }
-            log.info("TransactionPlugin: agent extracted to ${tmp.absolutePath}")
-            tmp
-        } catch (e: Exception) {
-            log.warn("TransactionPlugin: failed to extract agent JAR: ${e.message}")
-            null
+    companion object {
+        /** Cached temp file so we don't re-extract on every Run Configuration launch */
+        @Volatile private var extractedAgentJar: File? = null
+
+        private fun extractFromResources(): File? {
+            val log = thisLogger()
+            val resource = TransactionJavaProgramPatcher::class.java
+                .getResourceAsStream("/agent/transaction-agent.jar") ?: return null
+            return try {
+                val tmp = Files.createTempFile("transaction-agent-", ".jar").toFile()
+                tmp.deleteOnExit()
+                resource.use { Files.copy(it, tmp.toPath(), StandardCopyOption.REPLACE_EXISTING) }
+                log.info("TransactionPlugin: agent extracted to ${tmp.absolutePath}")
+                tmp
+            } catch (e: Exception) {
+                log.warn("TransactionPlugin: failed to extract agent JAR: ${e.message}")
+                null
+            }
         }
     }
 }

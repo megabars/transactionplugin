@@ -73,7 +73,7 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()) {
         val bar = JPanel(FlowLayout(FlowLayout.LEFT, 6, 4))
 
         val clearBtn = JButton("Clear").also {
-            it.addActionListener { /* store.clear() — could expose this */ }
+            it.addActionListener { store.clear() }
         }
 
         val filterCombo = JComboBox(arrayOf("All", "Committed", "Rolled Back")).also {
@@ -87,7 +87,7 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()) {
             }
         }
 
-        val statusLabel = JLabel("Connected to port ${store.port}")
+        val statusLabel = JLabel("Listening on port ${store.port}")
         statusLabel.foreground = JBColor(Color(0, 130, 0), Color(100, 200, 100))
 
         bar.add(JLabel("Filter:"))

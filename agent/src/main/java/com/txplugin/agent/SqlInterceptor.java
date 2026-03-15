@@ -58,7 +58,5 @@ public class SqlInterceptor {
         return PREPARED_SQL.get();
     }
 
-    public static void clearPreparedSql() {
-        PREPARED_SQL.remove();
-    }
+
 }

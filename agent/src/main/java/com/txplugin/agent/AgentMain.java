@@ -30,12 +30,12 @@ public class AgentMain {
         int port = parsePort(agentArgs);
         LOG.fine("[TransactionAgent] Installing, reporting to plugin on port=" + port);
 
-        // ── Critical: inject agent classes into bootstrap classloader ────────
-        // Spring Boot uses LaunchedURLClassLoader which cannot see agent classes.
-        // By adding the agent JAR to the bootstrap CL, our helper classes
-        // (TransactionContext, SqlInterceptor, etc.) become visible to all
-        // classloaders, so Byte Buddy's inlined advice bytecode can call them.
-        injectIntoBootstrap(instrumentation);
+        // ── Inject agent classes into the system classloader ─────────────────
+        // Spring Boot uses LaunchedURLClassLoader whose parent is the system CL.
+        // Adding the agent JAR to the system CL makes our helper classes
+        // (TransactionContext, SqlInterceptor, etc.) visible via parent delegation,
+        // so Byte Buddy's inlined advice bytecode can call them.
+        injectIntoSystemClassLoader(instrumentation);
 
         // ── Start reporter (connects to plugin's TCP server) ─────────────────
         SocketReporter.init(port);
@@ -58,7 +58,6 @@ public class AgentMain {
                 .type(
                         ElementMatchers.nameContains("TransactionAspectSupport")
                         .or(ElementMatchers.nameEndsWith("SessionFactoryImpl"))
-                        .or(ElementMatchers.nameEndsWith("JdbcServicesImpl"))
                         .or(ElementMatchers.nameContains("PreparedStatement")
                                 .and(ElementMatchers.not(ElementMatchers.nameStartsWith("java.")))
                                 .and(ElementMatchers.not(ElementMatchers.nameStartsWith("javax."))))
@@ -92,7 +91,7 @@ public class AgentMain {
      * under the bootstrap CL, causing a LinkageError due to duplicate class
      * definitions across two classloaders.
      */
-    private static void injectIntoBootstrap(Instrumentation instrumentation) {
+    private static void injectIntoSystemClassLoader(Instrumentation instrumentation) {
         try {
             File agentJar = new File(
                     AgentMain.class.getProtectionDomain()

@@ -12,8 +12,6 @@ dependencies {
     // Byte Buddy for bytecode instrumentation
     implementation("net.bytebuddy:byte-buddy:1.14.18")
     implementation("net.bytebuddy:byte-buddy-agent:1.14.18")
-    // Jackson for JSON serialization (newline-delimited)
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
     // Spring TX — compile-only, available at runtime from the target app's classpath
     compileOnly("org.springframework:spring-tx:6.1.14")
     compileOnly("org.springframework:spring-context:6.1.14")
