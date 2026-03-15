@@ -45,8 +45,8 @@ data class TransactionRecord(
     /** Short key used to match records to source methods, includes parameter types for overload disambiguation */
     val methodKey: String get() = "$className#$methodName($parameterTypes)"
 
-    /** One-line summary for inlay hint — computed once at construction */
-    val inlayHintText: String = buildString {
+    /** One-line summary for inlay hint — always computed from current field values */
+    val inlayHintText: String get() = buildString {
         if (isCommitted) append("✓ COMMITTED") else append("✗ ROLLED BACK")
         append("  ${durationMs}ms")
         if (sqlQueryCount > 0) {
