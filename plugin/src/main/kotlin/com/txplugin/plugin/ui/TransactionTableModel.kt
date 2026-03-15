@@ -32,7 +32,7 @@ class TransactionTableModel : AbstractTableModel() {
         fireTableDataChanged()
     }
 
-    fun recordAt(row: Int): TransactionRecord = rows[row]
+    fun recordAt(row: Int): TransactionRecord? = rows.getOrNull(row)
 
     override fun getRowCount() = rows.size
     override fun getColumnCount() = Column.entries.size
@@ -44,7 +44,7 @@ class TransactionTableModel : AbstractTableModel() {
             Column.TIME       -> timeFormat.format(Instant.ofEpochMilli(r.startTimeMs))
             Column.METHOD     -> "${r.className.substringAfterLast('.')}.${r.methodName}()"
             Column.DURATION   -> r.durationMs
-            Column.STATUS     -> r.status
+            Column.STATUS     -> r.status.name
             Column.SQL        -> r.sqlQueryCount
             Column.BATCH      -> r.batchCount
             Column.INSERT     -> r.insertCount

@@ -9,6 +9,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
 import com.txplugin.plugin.model.TransactionRecord
+import com.txplugin.plugin.model.TransactionStatus
 import com.txplugin.plugin.store.TransactionStore
 import java.awt.BorderLayout
 import java.awt.Color
@@ -38,7 +39,7 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), D
     private val detailPanel = TransactionDetailPanel(project)
 
     // Filter state
-    private var statusFilter: String? = null // null = All
+    private var statusFilter: TransactionStatus? = null // null = All
 
     // Keep reference so we can remove the exact same lambda instance on dispose
     private val storeListener: () -> Unit = { refreshTable() }
@@ -86,8 +87,8 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), D
         val filterCombo = JComboBox(arrayOf("All", "Committed", "Rolled Back")).also {
             it.addActionListener { _ ->
                 statusFilter = when (it.selectedIndex) {
-                    1 -> "COMMITTED"
-                    2 -> "ROLLED_BACK"
+                    1 -> TransactionStatus.COMMITTED
+                    2 -> TransactionStatus.ROLLED_BACK
                     else -> null
                 }
                 refreshTable()
@@ -115,7 +116,7 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), D
     private fun onRowSelected() {
         val row = table.selectedRow.takeIf { it >= 0 } ?: return
         val modelRow = table.convertRowIndexToModel(row)
-        val record = tableModel.recordAt(modelRow)
+        val record = tableModel.recordAt(modelRow) ?: return
         detailPanel.showRecord(record)
     }
 
@@ -143,7 +144,7 @@ private class StatusColorRenderer : DefaultTableCellRenderer() {
         if (!isSelected) {
             val modelRow = table.convertRowIndexToModel(row)
             val model = table.model as? TransactionTableModel ?: return comp
-            val record: TransactionRecord = try { model.recordAt(modelRow) } catch (_: Exception) { return comp }
+            val record: TransactionRecord = model.recordAt(modelRow) ?: return comp
             comp.background = when {
                 record.isCommitted  -> committedBg
                 record.isRolledBack -> rolledBackBg

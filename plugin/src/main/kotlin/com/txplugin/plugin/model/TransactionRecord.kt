@@ -1,5 +1,7 @@
 package com.txplugin.plugin.model
 
+enum class TransactionStatus { COMMITTED, ROLLED_BACK }
+
 /**
  * Mirror of the agent's TransactionRecord.
  * Deserialized from newline-delimited JSON received via TCP socket.
@@ -16,8 +18,7 @@ data class TransactionRecord(
     val endTimeMs: Long = 0,
     val durationMs: Long = 0,
 
-    /** "COMMITTED" or "ROLLED_BACK" */
-    val status: String = "",
+    val status: TransactionStatus = TransactionStatus.COMMITTED,
 
     val propagation: String = "",
     val isolationLevel: String = "",
@@ -38,14 +39,14 @@ data class TransactionRecord(
 
     val threadName: String = ""
 ) {
-    val isCommitted: Boolean get() = status == "COMMITTED"
-    val isRolledBack: Boolean get() = status == "ROLLED_BACK"
+    val isCommitted: Boolean get() = status == TransactionStatus.COMMITTED
+    val isRolledBack: Boolean get() = status == TransactionStatus.ROLLED_BACK
 
     /** Short key used to match records to source methods, includes parameter types for overload disambiguation */
     val methodKey: String get() = "$className#$methodName($parameterTypes)"
 
-    /** One-line summary for inlay hint */
-    val inlayHintText: String get() = buildString {
+    /** One-line summary for inlay hint — computed once at construction */
+    val inlayHintText: String = buildString {
         if (isCommitted) append("✓ COMMITTED") else append("✗ ROLLED BACK")
         append("  ${durationMs}ms")
         if (sqlQueryCount > 0) {

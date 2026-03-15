@@ -69,7 +69,19 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     @Volatile private var serverSocket: ServerSocket? = null
 
     init {
-        startServer()
+        // Bind socket synchronously so that `port` is set before any Run Configuration reads it.
+        // Only the accept loop runs in the background.
+        val ss = try {
+            bindServerSocket()
+        } catch (e: Exception) {
+            log.warn("TransactionStore: TCP server failed to bind — live transaction data unavailable", e)
+            null
+        }
+        if (ss != null) {
+            serverSocket = ss
+            port = ss.localPort
+            executor.submit { acceptLoop(ss) }
+        }
     }
 
     // ── PersistentStateComponent ──────────────────────────────────────────────
@@ -128,24 +140,14 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
 
     // ── Server ────────────────────────────────────────────────────────────────
 
-    private fun startServer() {
-        executor.submit {
+    private fun acceptLoop(ss: ServerSocket) {
+        while (!ss.isClosed) {
             try {
-                val ss = bindServerSocket()
-                serverSocket = ss
-                port = ss.localPort
-
-                while (!ss.isClosed) {
-                    try {
-                        val client = ss.accept()
-                        executor.submit { handleClient(client) }
-                    } catch (e: Exception) {
-                        if (!ss.isClosed) continue
-                        break
-                    }
-                }
+                val client = ss.accept()
+                executor.submit { handleClient(client) }
             } catch (e: Exception) {
-                log.warn("TransactionStore: TCP server failed to start — live transaction data unavailable", e)
+                if (!ss.isClosed) continue
+                break
             }
         }
     }

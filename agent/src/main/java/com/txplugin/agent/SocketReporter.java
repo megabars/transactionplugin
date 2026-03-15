@@ -3,11 +3,13 @@ package com.txplugin.agent;
 import java.io.BufferedWriter;
 import java.io.OutputStreamWriter;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
 /**
@@ -23,6 +25,8 @@ public class SocketReporter {
     private static final Logger LOG = Logger.getLogger(SocketReporter.class.getName());
     private static final int BUFFER_CAPACITY  = 1000;
     private static final int RECONNECT_MS     = 3_000;
+
+    private final AtomicLong droppedCount = new AtomicLong();
 
     private static SocketReporter INSTANCE;
 
@@ -49,7 +53,10 @@ public class SocketReporter {
 
     private void enqueue(TransactionRecord record) {
         synchronized (buffer) {
-            if (buffer.size() >= BUFFER_CAPACITY) buffer.pollFirst();
+            if (buffer.size() >= BUFFER_CAPACITY) {
+                buffer.pollFirst();
+                LOG.fine("[TX] Ring buffer full — dropped oldest record (total dropped: " + droppedCount.incrementAndGet() + ")");
+            }
             buffer.addLast(record);
             buffer.notifyAll();
         }
@@ -72,7 +79,7 @@ public class SocketReporter {
     private void connectAndStream() throws Exception {
         try (Socket s = new Socket("127.0.0.1", port);
              BufferedWriter w = new BufferedWriter(
-                     new OutputStreamWriter(s.getOutputStream(), "UTF-8"))) {
+                     new OutputStreamWriter(s.getOutputStream(), StandardCharsets.UTF_8))) {
 
             LOG.fine("Transaction reporter connected to plugin on port " + port);
 

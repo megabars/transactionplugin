@@ -6,6 +6,8 @@ import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.implementation.bytecode.assign.Assigner;
 import net.bytebuddy.matcher.ElementMatchers;
 
+import java.util.logging.Logger;
+
 /**
  * Byte Buddy advice classes.
  *
@@ -16,6 +18,8 @@ import net.bytebuddy.matcher.ElementMatchers;
  * 3. Hibernate entity counts via SessionFactory advice.
  */
 public class TransactionInstrumentation {
+
+    static final Logger LOG = Logger.getLogger(TransactionInstrumentation.class.getName());
 
     // =========================================================================
     // 1. TransactionAspectSupport.invokeWithinTransaction
@@ -68,7 +72,9 @@ public class TransactionInstrumentation {
                             ctx.readOnly       = tx.readOnly();
                             ctx.timeout        = tx.timeout();
                         }
-                    } catch (Throwable ignored) { }
+                    } catch (Throwable t) {
+                        TransactionInstrumentation.LOG.fine("[TX] failed to read @Transactional metadata: " + t);
+                    }
                 }
 
                 // Snapshot Hibernate counters at transaction start
@@ -76,7 +82,9 @@ public class TransactionInstrumentation {
                 ctx.updateCountBefore = HibernateStatsCollector.getUpdateCount();
                 ctx.deleteCountBefore = HibernateStatsCollector.getDeleteCount();
 
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                TransactionInstrumentation.LOG.fine("[TX] InvokeWithinTransaction enter advice failed: " + t);
+            }
         }
     }
 
@@ -99,7 +107,9 @@ public class TransactionInstrumentation {
                         HibernateStatsCollector.getDeleteCount()
                 );
                 SocketReporter.send(record);
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                TransactionInstrumentation.LOG.fine("[TX] InvokeWithinTransaction exit advice failed: " + t);
+            }
         }
     }
 
@@ -113,7 +123,9 @@ public class TransactionInstrumentation {
         public static void onEnter(@Advice.Argument(0) String sql) {
             try {
                 SqlInterceptor.onPrepareStatement(sql);
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                TransactionInstrumentation.LOG.fine("[TX] prepareStatement advice failed: " + t);
+            }
         }
     }
 
@@ -127,7 +139,9 @@ public class TransactionInstrumentation {
         public static void onEnter() {
             try {
                 SqlInterceptor.onPreparedExecute(SqlInterceptor.getPreparedSql());
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                TransactionInstrumentation.LOG.fine("[TX] PreparedStatement execute advice failed: " + t);
+            }
         }
     }
 
@@ -141,7 +155,9 @@ public class TransactionInstrumentation {
         public static void onEnter(@Advice.Argument(0) String sql) {
             try {
                 SqlInterceptor.onStatementExecute(sql);
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                TransactionInstrumentation.LOG.fine("[TX] Statement execute advice failed: " + t);
+            }
         }
     }
 
@@ -155,7 +171,9 @@ public class TransactionInstrumentation {
         public static void onEnter() {
             try {
                 SqlInterceptor.onBatchExecute();
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                TransactionInstrumentation.LOG.fine("[TX] executeBatch advice failed: " + t);
+            }
         }
     }
 
@@ -169,7 +187,9 @@ public class TransactionInstrumentation {
         public static void onExit(@Advice.Return(typing = Assigner.Typing.DYNAMIC) Object result) {
             try {
                 if (result != null) HibernateStatsCollector.setSessionFactory(result);
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                TransactionInstrumentation.LOG.fine("[TX] SessionFactory advice failed: " + t);
+            }
         }
     }
 

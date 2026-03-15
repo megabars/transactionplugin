@@ -26,7 +26,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
   ↓ NDJSON                          TransactionJavaProgramPatcher (-javaagent injection)
 ```
 
-## Сборка
+## Сборка и запуск
 
 ```bash
 # Всегда использовать clean при изменениях в агенте, иначе старый JAR останется в ресурсах плагина
@@ -34,11 +34,16 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 # Инкрементальная сборка (только если агент не менялся)
 ./gradlew :plugin:buildPlugin
+
+# Запуск sandbox IDE для ручного тестирования
+./gradlew :plugin:runIde
 ```
 
 Артефакт: `plugin/build/distributions/plugin-0.1.0.zip`
 
 `plugin/build.gradle.kts` копирует собранный agent JAR в `plugin/build/resources/main/agent/` через `processResources`. При установке плагин извлекает JAR из resources если нет файла `plugin/agent/transaction-agent.jar` (dev-path).
+
+**Тестов нет** — ни unit-, ни integration-тестов в проекте не существует. Тестирование только ручное через `runIde`.
 
 ## Ключевые файлы
 
@@ -46,15 +51,18 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 - `agent/.../AgentMain.java` — `premain`/`agentmain`, парсит `port=PORT`, инициализирует Byte Buddy трансформер
 - `agent/.../TransactionInstrumentation.java` — 6 пар advice-классов: TX, PreparedStatement, Statement, batch, SessionFactory
 - `agent/.../TransactionContext.java` — `ThreadLocal<Deque>` для nested TX; `push()`/`current()`/`pop()`
-- `agent/.../SocketReporter.java` — TCP-клиент, ring buffer 1000, reconnect каждые 3 сек, ручная JSON-сериализация
+- `agent/.../SocketReporter.java` — TCP-клиент, ring buffer 1000, reconnect каждые 3 сек, **ручная** JSON-сериализация (Jackson недоступен через system classloader)
 - `agent/.../SqlInterceptor.java` — static helpers для JDBC-interception; хранит SQL PreparedStatement через ThreadLocal
 - `agent/.../HibernateStatsCollector.java` — читает insert/update/delete счётчики через reflection
+- `agent/.../TransactionRecord.java` — POJO, сериализуется вручную в `SocketReporter`
 
 **Plugin (Kotlin):**
-- `plugin/.../store/TransactionStore.kt` — Application service: TCP-сервер, ring buffer, persistence, listeners, CodeVision invalidation
+- `plugin/.../store/TransactionStore.kt` — **Application**-level service (не Project): TCP-сервер, ring buffer, persistence, listeners, CodeVision invalidation; парсит JSON через **Gson**
 - `plugin/.../run/TransactionJavaProgramPatcher.kt` — `JavaProgramPatcher`: добавляет `-javaagent=...=port=PORT` в Run Config
 - `plugin/.../ui/TransactionCodeVisionProvider.kt` — Code Vision lens над `@Transactional` методами
-- `plugin/.../ui/TransactionToolWindowFactory.kt` — Tool Window: JBTable + `TransactionDetailPanel` (SQL, метрики, навигация)
+- `plugin/.../ui/TransactionToolWindowFactory.kt` — Tool Window: JBSplitter с таблицей и деталями
+- `plugin/.../ui/TransactionDetailPanel.kt` — правая панель: SQL, метрики, кнопка навигации к методу
+- `plugin/.../ui/TransactionTableModel.kt` — модель таблицы для `JBTable`
 - `plugin/.../model/TransactionRecord.kt` — data class + вычисляемое `inlayHintText`
 
 ## Ключевые решения

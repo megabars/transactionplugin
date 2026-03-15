@@ -1,7 +1,12 @@
 package com.txplugin.plugin.ui
 
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Computable
 import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.NavigatablePsiElement
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.ui.JBColor
@@ -170,28 +175,40 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
      * Navigates to the source of the current record using PSI.
      * Looks up the PsiClass and then the specific PsiMethod by name,
      * avoiding reliance on the (unreliable) lineNumber field.
-     * Falls back to allScope if the class is not found in project sources.
+     * Only searches project sources — does not fall back to library classes.
      */
     private fun navigateToSource() {
         val record = currentRecord ?: return
-        val facade = JavaPsiFacade.getInstance(project)
-        val projectScope = GlobalSearchScope.projectScope(project)
-        val allScope = GlobalSearchScope.allScope(project)
 
-        val psiClass = facade.findClass(record.className, projectScope)
-            ?: facade.findClass(record.className, allScope)
-            ?: return
+        val target: NavigatablePsiElement? = ReadAction.compute(Computable {
+            val facade = JavaPsiFacade.getInstance(project)
+            val projectScope = GlobalSearchScope.projectScope(project)
 
-        // Find the specific overload matching the record's parameter types
-        val targetMethod: PsiMethod? = psiClass.findMethodsByName(record.methodName, true)
-            .firstOrNull { method ->
-                val paramTypes = method.parameterList.parameters.joinToString(",") { param ->
-                    param.type.canonicalText.substringBefore('<').substringAfterLast('.')
+            val psiClass = facade.findClass(record.className, projectScope) ?: return@Computable null
+
+            // Find the specific overload matching the record's parameter types
+            val targetMethod: PsiMethod? = psiClass.findMethodsByName(record.methodName, true)
+                .firstOrNull { method ->
+                    val paramTypes = method.parameterList.parameters.joinToString(",") { param ->
+                        param.type.canonicalText.substringBefore('<').substringAfterLast('.')
+                    }
+                    paramTypes == record.parameterTypes
                 }
-                paramTypes == record.parameterTypes
-            }
-            ?: psiClass.findMethodsByName(record.methodName, true).firstOrNull()
+                ?: psiClass.findMethodsByName(record.methodName, true).firstOrNull()
 
-        (targetMethod ?: psiClass).navigate(true)
+            targetMethod ?: psiClass
+        })
+
+        if (target == null) {
+            NotificationGroupManager.getInstance()
+                .getNotificationGroup("TransactionMonitor")
+                .createNotification(
+                    "Method not found in project sources: ${record.className}.${record.methodName}",
+                    NotificationType.WARNING
+                )
+                .notify(project)
+            return
+        }
+        target.navigate(true)
     }
 }
