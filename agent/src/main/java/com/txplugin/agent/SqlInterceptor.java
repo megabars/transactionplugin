@@ -49,13 +49,13 @@ public class SqlInterceptor {
 
         TransactionContext ctx = TransactionContext.current();
         if (ctx == null) return;
-        ctx.sqlQueryCount++;
         ctx.batchCount++; // count rows, not executeBatch() calls
-        String sql = PREPARED_SQL.get(); // peek — keep for subsequent addBatch() calls
+
+        // Accumulate formatted params for this row; consolidated entry is built in executeBatch
         java.util.LinkedHashMap<Integer, Object> params = PREPARED_PARAMS.get();
-        if (sql != null && ctx.sqlQueries.size() < TransactionRecord.MAX_SQL_QUERIES) {
-            ctx.sqlQueries.add(buildEntry(sql, formatParams(params)));
-        }
+        java.util.List<String> formatted = formatParams(params);
+        BATCH_PARAMS_LIST.get().add(formatted.isEmpty() ? "" : "[" + String.join(", ", formatted) + "]");
+
         // Clear params for the next row; SQL stays until executeBatch() cleans up
         if (params != null) params.clear();
     }
@@ -68,9 +68,20 @@ public class SqlInterceptor {
     public static void onBatchExecuteEnter() {
         int[] depth = BATCH_EXEC_DEPTH.get();
         if (depth[0] == 0) {
+            // Outermost call: build one consolidated batch entry
+            TransactionContext ctx = TransactionContext.current();
+            if (ctx != null) {
+                String sql = PREPARED_SQL.get();
+                java.util.List<String> paramsList = BATCH_PARAMS_LIST.get();
+                if (sql != null && ctx.sqlQueries.size() < TransactionRecord.MAX_SQL_QUERIES) {
+                    ctx.sqlQueries.add(buildBatchEntry(sql, paramsList));
+                }
+                ctx.sqlQueryCount++;
+            }
             PREPARED_SQL.remove();
             PREPARED_PARAMS.remove();
             BATCH_ROW_CAPTURED.remove();
+            BATCH_PARAMS_LIST.get().clear();
         }
         depth[0]++;
     }
@@ -98,11 +109,15 @@ public class SqlInterceptor {
     // Depth counter for executeBatch() proxy double-calls.
     // int[1] instead of Integer so we can mutate without re-boxing.
     private static final ThreadLocal<int[]> BATCH_EXEC_DEPTH = ThreadLocal.withInitial(() -> new int[]{0});
+    // Accumulates formatted params strings per addBatch() row, cleared after executeBatch().
+    private static final ThreadLocal<java.util.List<String>> BATCH_PARAMS_LIST =
+            ThreadLocal.withInitial(java.util.ArrayList::new);
 
     public static void onPrepareStatement(String sql) {
         PREPARED_SQL.set(sql);
         PREPARED_PARAMS.set(new java.util.LinkedHashMap<>());
         BATCH_ROW_CAPTURED.remove();
+        BATCH_PARAMS_LIST.get().clear();
     }
 
     /**
@@ -154,5 +169,16 @@ public class SqlInterceptor {
         return (params == null || params.isEmpty())
                 ? sql
                 : sql + "\n  [" + String.join(", ", params) + "]";
+    }
+
+    private static String buildBatchEntry(String sql, java.util.List<String> paramsList) {
+        StringBuilder sb = new StringBuilder(sql);
+        sb.append("  [batch: ").append(paramsList.size()).append(" rows]");
+        for (String params : paramsList) {
+            if (!params.isEmpty()) {
+                sb.append("\n  ").append(params);
+            }
+        }
+        return sb.toString();
     }
 }

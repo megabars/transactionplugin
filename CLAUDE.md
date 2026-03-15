@@ -19,7 +19,7 @@ Spring Boot App                     IntelliJ Plugin
 @Transactional method               TransactionStore (Application Service)
   ↓ Byte Buddy intercepts             TCP ServerSocket(:17321)
 TransactionInstrumentation            ring buffer (1000 records)
-  ↓ collects SQL, Hibernate stats     PersistentStateComponent (transactionStore.xml)
+  ↓ collects SQL                      PersistentStateComponent (transactionStore.xml)
 TransactionContext (ThreadLocal)      ↓
   ↓ supports nested TX              TransactionCodeVisionProvider (Code Vision lens)
 SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail panel)
@@ -49,7 +49,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Agent (Java):**
 - `agent/.../AgentMain.java` — `premain`/`agentmain`, парсит `port=PORT`, инициализирует Byte Buddy трансформер
-- `agent/.../TransactionInstrumentation.java` — advice-классы: TX, PreparedStatement (execute/addBatch/executeBatch/setXxx), Statement, SessionFactory; включает логику Hibernate stats
+- `agent/.../TransactionInstrumentation.java` — advice-классы: TX (`invokeWithinTransaction`), PreparedStatement (execute/addBatch/executeBatch/setXxx), plain Statement
 - `agent/.../TransactionContext.java` — `ThreadLocal<Deque>` для nested TX; `push()`/`current()`/`pop()`
 - `agent/.../SocketReporter.java` — TCP-клиент, ring buffer 1000, reconnect каждые 3 сек, **ручная** JSON-сериализация (Jackson недоступен через system classloader)
 - `agent/.../SqlInterceptor.java` — static helpers для JDBC-interception; три ThreadLocal: `PREPARED_SQL`, `PREPARED_PARAMS` (LinkedHashMap), `BATCH_ROW_CAPTURED`/`BATCH_EXEC_DEPTH`
@@ -94,9 +94,9 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 - `addBatch` — флаг `BATCH_ROW_CAPTURED` (сбрасывается при следующем `setXxx`)
 - `executeBatch` — depth-counter `BATCH_EXEC_DEPTH`: только первый (outermost) вызов считается
 
-**`batchCount`**: количество строк добавленных через `addBatch()` (не количество вызовов `executeBatch()`). Отображается в Transaction Info и всплывающем окне хинта.
+**`batchCount`**: количество строк добавленных через `addBatch()` (не количество вызовов `executeBatch()`). Отображается в Transaction Info и всплывающем окне хинта. `sqlQueryCount` инкрементируется один раз в `onBatchExecuteEnter()` (не в `onAddBatch()`) — один `executeBatch()` = один SQL-оператор.
 
-**Byte Buddy advice**: два отдельных класса для enter/exit (требование Byte Buddy). Аргументы `invokeWithinTransaction(Method, Class<?>, InvocationCallback)` — индексы 0 и 1, не 1 и 2. `doCommit`/`doRollback` — абстрактные методы, Byte Buddy их пропускает; статус транзакции определяется через `@Advice.Thrown` в exit advice. `JdbcServicesImpl` **не** перехватывается — только `SessionFactoryImpl`; иначе `unavailable=true` срабатывает раньше, чем создаётся реальный `SessionFactory`. `SetParameterAdvice` применяется с `Assigner.Typing.DYNAMIC` чтобы autobox примитивы (int, long, boolean и т.д.) в Object.
+**Byte Buddy advice**: два отдельных класса для enter/exit (требование Byte Buddy). Аргументы `invokeWithinTransaction(Method, Class<?>, InvocationCallback)` — индексы 0 и 1, не 1 и 2. `doCommit`/`doRollback` — абстрактные методы, Byte Buddy их пропускает; статус транзакции определяется через `@Advice.Thrown` в exit advice. `SetParameterAdvice` применяется с `Assigner.Typing.DYNAMIC` чтобы autobox примитивы (int, long, boolean и т.д.) в Object.
 
 **methodKey**: `"className#methodName(ParamType1,ParamType2)"` — включает типы параметров для корректной работы с перегруженными методами. Агент использует `Class.getSimpleName()`, плагин — `canonicalText.substringBefore('<').substringAfterLast('.')` для совпадения.
 
@@ -118,8 +118,6 @@ FileEditorManager.getInstance(project).allEditors
 
 **Nested TX**: `TransactionContext` поддерживает стек — SQL всегда попадает в innermost активную транзакцию.
 
-**Hibernate stats**: `HibernateStatsCollector` использует reflection чтобы не добавлять compile-time зависимость. Автоматически включает `hibernate.generate_statistics` через `SessionFactoryAdvice`.
-
 ## Формат хинта над методом
 
 ```
@@ -137,7 +135,16 @@ SELECT * FROM users WHERE id = ?
 INSERT INTO orders (user_id, amount) VALUES (?,?)
   [1='42', 2='99.90']
 ```
-Параметры захватываются через `SetParameterAdvice` → `onSetParameter()`. Для batch каждая строка `addBatch()` — отдельная запись. Значения обрезаются до 100 символов.
+
+Batch-запрос отображается одной consolidated-записью:
+```
+INSERT INTO users (id, name) VALUES (?, ?)  [batch: 3 rows]
+  [1='1', 2='Alice']
+  [1='2', 2='Bob']
+  [1='3', 2='Charlie']
+```
+
+Параметры захватываются через `SetParameterAdvice` → `onSetParameter()`. Для batch: `onAddBatch()` накапливает параметры в `BATCH_PARAMS_LIST` (ThreadLocal), `onBatchExecuteEnter()` при depth==1 собирает одну запись через `buildBatchEntry()` и добавляет в `ctx.sqlQueries`. Значения обрезаются до 100 символов.
 
 ## Логирование агента
 

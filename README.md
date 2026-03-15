@@ -41,6 +41,14 @@ INSERT INTO orders (user_id, amount) VALUES (?,?)
   [1='42', 2='99.90']
 ```
 
+Batch operations are shown as a single consolidated entry:
+```
+INSERT INTO users (id, name) VALUES (?, ?)  [batch: 3 rows]
+  [1='1', 2='Alice']
+  [1='2', 2='Bob']
+  [1='3', 2='Charlie']
+```
+
 ## How it works
 
 ```
@@ -53,8 +61,8 @@ Run Configuration                      invokeWithinTransaction
                                       PreparedStatement intercepts:
                                         prepareStatement → captures SQL
                                         setXxx           → captures params
-                                        addBatch         → captures batch rows
-                                        executeBatch     → counts batch calls
+                                        addBatch         → accumulates batch rows
+                                        executeBatch     → emits consolidated batch entry
                                         execute/executeQuery/executeUpdate
 
 TransactionStore ←──TCP :17321──────  SocketReporter
