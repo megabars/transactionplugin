@@ -74,8 +74,6 @@ public class AgentMain {
                                 .and(ElementMatchers.not(ElementMatchers.nameContains("Callable"))))
                 )
                 .transform(TransactionInstrumentation.buildTransformer())
-                .with(AgentBuilder.Listener.StreamWriting.toSystemError()
-                        .withTransformationsOnly())  // log only successful transforms
                 .installOn(instrumentation);
 
         LOG.info("[TransactionAgent] Installed successfully");
