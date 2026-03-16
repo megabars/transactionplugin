@@ -141,7 +141,7 @@ class TransactionContextTest {
         ctx.isolationLevel = "READ_COMMITTED";
         ctx.readOnly = true;
         ctx.timeout = 30;
-        ctx.sqlQueryCount = 3;
+        ctx.sqlQueryCount = 1;
         ctx.batchCount = 5;
         ctx.sqlQueries.add("SELECT 1");
 
@@ -154,7 +154,7 @@ class TransactionContextTest {
         assertEquals("READ_COMMITTED", r.isolationLevel);
         assertTrue(r.readOnly);
         assertEquals(30, r.timeout);
-        assertEquals(3, r.sqlQueryCount);
+        assertEquals(1, r.sqlQueryCount);
         assertEquals(5, r.batchCount);
         assertEquals(1, r.sqlQueries.size());
         assertEquals("SELECT 1", r.sqlQueries.get(0));
