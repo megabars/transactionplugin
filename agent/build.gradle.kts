@@ -15,6 +15,16 @@ dependencies {
     // Spring TX — compile-only, available at runtime from the target app's classpath
     compileOnly("org.springframework:spring-tx:6.1.14")
     compileOnly("org.springframework:spring-context:6.1.14")
+    // Test dependencies
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation("org.springframework:spring-tx:6.1.14")
+    testImplementation("org.springframework:spring-context:6.1.14")
+    testImplementation("com.google.code.gson:gson:2.11.0")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 // Fat JAR — agent must be self-contained

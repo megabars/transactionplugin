@@ -170,7 +170,7 @@ public class SocketReporter {
         sb.append("],");
     }
 
-    private static String escape(String s) {
+    static String escape(String s) {
         if (s == null) return "";
         StringBuilder sb = new StringBuilder(s.length() + 8);
         int i = 0;

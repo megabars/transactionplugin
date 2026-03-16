@@ -25,13 +25,22 @@ dependencies {
     }
     // Gson for JSON parsing in plugin
     implementation("com.google.code.gson:gson:2.11.0")
+    // Test dependencies
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    // JUnit 4 required by IJ Platform's JUnit5TestSessionListener at test runtime
+    testRuntimeOnly("junit:junit:4.13.2")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 intellijPlatform {
     pluginConfiguration {
         id = "com.txplugin"
         name = "Transaction Monitor"
-        version = "0.2.0"
+        version = "0.3.0"
         description = "Real-time Spring Boot transaction monitoring with inlay hints"
         ideaVersion {
             sinceBuild = "233"

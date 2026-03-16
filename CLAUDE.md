@@ -39,11 +39,11 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 ./gradlew :plugin:runIde
 ```
 
-Артефакт: `plugin/build/distributions/plugin-0.2.0.zip`
+Артефакт: `plugin/build/distributions/plugin-0.3.0.zip`
 
 `plugin/build.gradle.kts` копирует собранный agent JAR в `plugin/build/resources/main/agent/` через `processResources`. При установке плагин извлекает JAR из resources если нет файла `plugin/agent/transaction-agent.jar` (dev-path).
 
-**Тестов нет** — ни unit-, ни integration-тестов в проекте не существует. Тестирование только ручное через `runIde`.
+**Тесты** — 104 unit-теста в пяти файлах (agent: 3 файла Java, plugin: 2 файла Kotlin). Запуск: `./gradlew :agent:test :plugin:test`.
 
 ## Ключевые файлы
 
