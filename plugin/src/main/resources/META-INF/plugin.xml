@@ -56,6 +56,17 @@
         <applicationService
                 serviceImplementation="com.txplugin.plugin.store.TransactionStore"/>
 
+        <!-- Settings: user-configurable plugin parameters -->
+        <applicationService
+                serviceImplementation="com.txplugin.plugin.settings.TransactionSettings"/>
+
+        <!-- Settings UI: Tools > Transaction Monitor -->
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.txplugin.plugin.settings.TransactionSettingsConfigurable"
+                id="com.txplugin.plugin.settings.TransactionSettingsConfigurable"
+                displayName="Transaction Monitor"/>
+
         <!-- Inject -javaagent into Run Configurations -->
         <java.programPatcher
                 implementation="com.txplugin.plugin.run.TransactionJavaProgramPatcher"/>

@@ -45,6 +45,18 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Тесты** — 104 unit-теста в пяти файлах (agent: 3 файла Java, plugin: 2 файла Kotlin). Запуск: `./gradlew :agent:test :plugin:test`.
 
+```bash
+# Запуск одного тестового класса
+./gradlew :agent:test --tests "com.txplugin.agent.JsonEscapeTest"
+./gradlew :plugin:test --tests "com.txplugin.plugin.ui.TransactionTableModelTest"
+
+# Запуск одного теста по имени метода
+./gradlew :agent:test --tests "com.txplugin.agent.SqlInterceptorTest.имяМетода"
+
+# Верификация плагина
+./gradlew :plugin:verifyPlugin
+```
+
 ## Ключевые файлы
 
 **Agent (Java):**
@@ -57,6 +69,8 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Plugin (Kotlin):**
 - `plugin/.../store/TransactionStore.kt` — **Application**-level service (не Project): TCP-сервер, ring buffer, persistence, listeners, CodeVision invalidation; парсит JSON через **Gson**
+- `plugin/.../settings/TransactionSettings.kt` — `PersistentStateComponent` с пользовательскими настройками (`maxRecords`, `port`, `showCodeVision`); сохраняется в `transactionSettings.xml`
+- `plugin/.../settings/TransactionSettingsConfigurable.kt` — UI настроек в **Settings → Tools → Transaction Monitor**
 - `plugin/.../run/TransactionJavaProgramPatcher.kt` — `JavaProgramPatcher`: добавляет `-javaagent=...=port=PORT` в Run Config
 - `plugin/.../ui/TransactionCodeVisionProvider.kt` — Code Vision lens над `@Transactional` методами
 - `plugin/.../ui/TransactionToolWindowFactory.kt` — Tool Window: JBSplitter с таблицей и деталями
@@ -66,16 +80,20 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 ## Точки входа плагина (plugin.xml)
 
-5 зарегистрированных расширений:
+7 зарегистрированных расширений:
 - `toolWindow` — "Transaction Monitor" (anchor=right, icon=transaction.svg)
 - `codeInsight.codeVisionProvider` — TransactionCodeVisionProvider
 - `notificationGroup` — "TransactionMonitor" (displayType=BALLOON)
 - `applicationService` — TransactionStore
+- `applicationService` — TransactionSettings
+- `applicationConfigurable` (parentId=tools) — TransactionSettingsConfigurable
 - `java.programPatcher` — TransactionJavaProgramPatcher
 
 ## Ключевые решения
 
-**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321, 50, InetAddress.getLoopbackAddress())`; если занят — `ServerSocket(0, 50, loopback)` (случайный порт). Bind только на loopback — агент подключается к `127.0.0.1`, внешние соединения невозможны. `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга. На каждый принятый клиентский сокет устанавливается `soTimeout = 30_000` мс — если агент завис и не шлёт данные, поток-читатель разблокируется через 30 сек. Входящие строки ограничены `MAX_LINE_BYTES = 1 MiB` — проверка выполняется в байтах (`line.toByteArray(UTF_8).size`) после чтения; строки сверх лимита логируются и пропускаются (не обрабатываются, но память уже выделена).
+**Настройки**: `TransactionSettings` (`PersistentStateComponent`, `transactionSettings.xml`) хранит `maxRecords` (100–10 000, default 1000), `port` (1024–65535, default 17321), `showCodeVision` (bool, default true). `TransactionStore` и `TransactionCodeVisionProvider` читают их напрямую через `TransactionSettings.getInstance()`. Изменение порта вступает в силу после перезапуска IDE. Изменение `showCodeVision` мгновенно инвалидирует Code Vision через `CodeVisionHost`.
+
+**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(TransactionSettings.port, 50, InetAddress.getLoopbackAddress())`; если занят — `ServerSocket(0, 50, loopback)` (случайный порт). Bind только на loopback — агент подключается к `127.0.0.1`, внешние соединения невозможны. `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга. На каждый принятый клиентский сокет устанавливается `soTimeout = 30_000` мс — если агент завис и не шлёт данные, поток-читатель разблокируется через 30 сек. Входящие строки ограничены `MAX_LINE_BYTES = 1 MiB` — проверка выполняется в байтах (`line.toByteArray(UTF_8).size`) после чтения; строки сверх лимита логируются и пропускаются (не обрабатываются, но память уже выделена).
 
 **Проверка версии JVM** (`TransactionJavaProgramPatcher`): агент скомпилирован для Java 11 (class file version 55). Инъекция в JVM < 11 вызывает `UnsupportedClassVersionError` и fatal crash. Поэтому `patchJavaParameters()` проверяет версию JDK через `JavaSdk.getInstance().getVersion(jdk).isAtLeast(JavaSdkVersion.JDK_11)` — если JDK < 11, агент не инжектируется.
 

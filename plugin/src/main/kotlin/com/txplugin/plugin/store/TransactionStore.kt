@@ -12,6 +12,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.ProjectManager
 import com.txplugin.plugin.model.TransactionRecord
+import com.txplugin.plugin.settings.TransactionSettings
 import com.txplugin.plugin.ui.TransactionCodeVisionProvider
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -41,7 +42,7 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     )
 
     companion object {
-        const val MAX_RECORDS = 1000
+        const val DEFAULT_MAX_RECORDS = 1000
         const val DEFAULT_PORT = 17321
         /** Max JSON line length accepted from agent (1 MiB).
          *  Note: the line is already in memory when this check runs (BufferedReader reads eagerly),
@@ -59,12 +60,14 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
         Thread(r, "tx-store-io-${ioThreadIndex.incrementAndGet()}").also { it.isDaemon = true }
     }
 
+    private val maxRecords get() = TransactionSettings.getInstance().maxRecords
+
     /** Ring buffer — oldest entries are dropped when full */
-    private val records = ArrayDeque<TransactionRecord>(MAX_RECORDS)
+    private val records = ArrayDeque<TransactionRecord>(DEFAULT_MAX_RECORDS)
 
     /** O(1) lookup: methodKey → last record for that method.
      *  LinkedHashMap preserves insertion order so we can evict the oldest entry
-     *  when the map exceeds MAX_RECORDS (prevents unbounded growth). */
+     *  when the map exceeds maxRecords (prevents unbounded growth). */
     private val latestByMethod = LinkedHashMap<String, TransactionRecord>()
 
     private val lock = Any()
@@ -115,17 +118,17 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
                 try {
                     val r = gson.fromJson(json, TransactionRecord::class.java)
                     if (r != null) {
-                        if (records.size < MAX_RECORDS) records.addLast(r)
+                        if (records.size < maxRecords) records.addLast(r)
                         latestByMethod[r.methodKey] = r
                     }
                 } catch (e: Exception) {
                     log.warn("TransactionStore: failed to deserialize persisted record", e)
                 }
             }
-            // Evict oldest entries if persistence had more than MAX_RECORDS unique methods
-            if (latestByMethod.size > MAX_RECORDS) {
+            // Evict oldest entries if persistence had more than maxRecords unique methods
+            if (latestByMethod.size > maxRecords) {
                 val iter = latestByMethod.iterator()
-                repeat(latestByMethod.size - MAX_RECORDS) { if (iter.hasNext()) { iter.next(); iter.remove() } }
+                repeat(latestByMethod.size - maxRecords) { if (iter.hasNext()) { iter.next(); iter.remove() } }
             }
         }
     }
@@ -173,7 +176,7 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     private fun bindServerSocket(): ServerSocket {
         val loopback = InetAddress.getLoopbackAddress()
         return try {
-            ServerSocket(DEFAULT_PORT, 50, loopback)
+            ServerSocket(TransactionSettings.getInstance().port, 50, loopback)
         } catch (_: Exception) {
             ServerSocket(0, 50, loopback)
         }
@@ -210,13 +213,13 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
 
     private fun addRecord(record: TransactionRecord) {
         synchronized(lock) {
-            if (records.size >= MAX_RECORDS) records.removeFirst()
+            if (records.size >= maxRecords) records.removeFirst()
             records.addLast(record)
             latestByMethod[record.methodKey] = record
             // Evict oldest entries to prevent unbounded growth (e.g. many generated proxy methods)
-            if (latestByMethod.size > MAX_RECORDS) {
+            if (latestByMethod.size > maxRecords) {
                 val iter = latestByMethod.iterator()
-                repeat(latestByMethod.size - MAX_RECORDS) { if (iter.hasNext()) { iter.next(); iter.remove() } }
+                repeat(latestByMethod.size - maxRecords) { if (iter.hasNext()) { iter.next(); iter.remove() } }
             }
         }
         notifyListeners()

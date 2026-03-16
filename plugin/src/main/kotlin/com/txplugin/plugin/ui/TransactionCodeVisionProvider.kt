@@ -11,6 +11,7 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.txplugin.plugin.model.TransactionRecord
+import com.txplugin.plugin.settings.TransactionSettings
 import com.txplugin.plugin.store.TransactionStore
 import java.awt.Dimension
 import java.awt.Font
@@ -50,6 +51,7 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
     override fun precomputeOnUiThread(editor: Editor) {}
 
     override fun computeCodeVision(editor: Editor, uiData: Unit): CodeVisionState {
+        if (!TransactionSettings.getInstance().showCodeVision) return CodeVisionState.READY_EMPTY
         val project = editor.project ?: return CodeVisionState.READY_EMPTY
         val store = TransactionStore.getInstance()
 
