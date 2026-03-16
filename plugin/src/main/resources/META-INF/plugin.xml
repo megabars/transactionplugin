@@ -1,12 +1,35 @@
 <idea-plugin>
-    <id>com.txplugin</id>
+    <id>com.github.megabars.transactionmonitor</id>
     <name>Transaction Monitor</name>
-    <version>1.0.0</version>
-    <vendor>txplugin</vendor>
-    <description>Real-time Spring Boot transaction monitoring. Shows completed transaction info as
-        inlay hints above @Transactional methods. Connects to running apps via Java Agent (no
-        code changes required).
-    </description>
+
+    <description><![CDATA[
+        <p>Real-time Spring Boot transaction monitoring — zero code changes required.</p>
+
+        <p>The plugin automatically injects a Java Agent into your Run Configuration and captures
+        every <code>@Transactional</code> method execution: duration, SQL queries with bound
+        parameters, batch row counts, and exception stack traces.</p>
+
+        <h3>Features</h3>
+        <ul>
+            <li><b>Inlay hints</b> above <code>@Transactional</code> methods — status, duration, propagation, batch count</li>
+            <li><b>Click on hint</b> — instant popup with transaction summary</li>
+            <li><b>Tool Window</b> — full transaction history with sorting and status filter (COMMITTED / ROLLED BACK)</li>
+            <li><b>Detail Panel</b> — SQL with bound parameters, batch rows, exception stack trace, "Navigate to source"</li>
+            <li>Works with <b>Java and Kotlin</b> Spring Boot 2.x and 3.x</li>
+            <li>Supports nested transactions (<code>REQUIRES_NEW</code>, <code>NESTED</code>, <code>MANDATORY</code>, etc.)</li>
+            <li>Captures <code>noRollbackFor</code> semantics correctly</li>
+        </ul>
+
+        <h3>How it works</h3>
+        <ol>
+            <li>Open a Spring Boot project and run it via a Run Configuration</li>
+            <li>The plugin auto-injects <code>-javaagent</code> — no manual setup needed</li>
+            <li>Trigger your <code>@Transactional</code> methods (HTTP, tests, etc.)</li>
+            <li>Inlay hints appear instantly; open <b>Transaction Monitor</b> tool window for full history</li>
+        </ol>
+
+        <p><b>Requirements:</b> JDK 11+ for the monitored app. No dependencies to add to your project.</p>
+    ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>

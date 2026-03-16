@@ -1,4 +1,5 @@
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 
 plugins {
     kotlin("jvm") version "1.9.23"
@@ -22,6 +23,7 @@ dependencies {
         bundledPlugin("com.intellij.java")
         testFramework(TestFrameworkType.Platform)
         instrumentationTools()
+        pluginVerifier()
     }
     // Gson for JSON parsing in plugin
     implementation("com.google.code.gson:gson:2.11.0")
@@ -38,13 +40,57 @@ tasks.test {
 
 intellijPlatform {
     pluginConfiguration {
-        id = "com.txplugin"
+        id = "com.github.megabars.transactionmonitor"
         name = "Transaction Monitor"
         version = "0.3.0"
-        description = "Real-time Spring Boot transaction monitoring with inlay hints"
+
+        vendor {
+            name = "megabars"
+            url = "https://github.com/megabars/transactionplugin"
+        }
+
+        description = providers.provider {
+            """
+            <p>Real-time Spring Boot transaction monitoring — zero code changes required.</p>
+            <p>The plugin automatically injects a Java Agent and captures every @Transactional
+            method execution: duration, SQL queries with bound parameters, batch row counts,
+            and exception stack traces.</p>
+            <h3>Features</h3>
+            <ul>
+                <li><b>Inlay hints</b> above @Transactional methods — status, duration, propagation, batch count</li>
+                <li><b>Tool Window</b> with full history and status filter (COMMITTED / ROLLED BACK)</li>
+                <li><b>SQL with bound parameters</b> and batch row counts in Detail Panel</li>
+                <li>Works with Spring Boot 2.x and 3.x, Java and Kotlin</li>
+                <li>Supports nested transactions and noRollbackFor semantics</li>
+            </ul>
+            """.trimIndent()
+        }
+
+        changeNotes = providers.provider {
+            """
+            <h3>0.3.0</h3>
+            <ul>
+                <li>Real-time @Transactional monitoring via Java Agent (no code changes required)</li>
+                <li>Inlay hints with status, duration, propagation type, and batch row count</li>
+                <li>Tool Window with full transaction history, sorting, and status filter</li>
+                <li>SQL with bound parameters and batch rows in Detail Panel</li>
+                <li>Navigate to source from detail panel</li>
+                <li>Supports nested transactions and noRollbackFor semantics</li>
+                <li>Spring Boot 2.x and 3.x, Java and Kotlin</li>
+                <li>IntelliJ IDEA Community and Ultimate 2023.3+</li>
+            </ul>
+            """.trimIndent()
+        }
+
         ideaVersion {
             sinceBuild = "233"
             untilBuild = provider { null }
+        }
+    }
+
+    pluginVerification {
+        ides {
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2023.3.7")
         }
     }
 
