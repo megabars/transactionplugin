@@ -8,6 +8,8 @@ import com.intellij.execution.runners.JavaProgramPatcher
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.projectRoots.JavaSdk
+import com.intellij.openapi.projectRoots.JavaSdkVersion
 import com.txplugin.plugin.store.TransactionStore
 import java.io.File
 import java.nio.file.Files
@@ -19,6 +21,17 @@ class TransactionJavaProgramPatcher : JavaProgramPatcher() {
 
     override fun patchJavaParameters(executor: Executor, configuration: RunProfile, javaParameters: JavaParameters) {
         if (configuration !is ModuleBasedConfiguration<*, *>) return
+
+        // Agent is compiled for Java 17 — loading it on an older JVM causes a fatal crash.
+        // Skip injection silently when the run configuration uses JDK < 17.
+        val jdk = javaParameters.jdk
+        if (jdk != null) {
+            val jdkVersion = JavaSdk.getInstance().getVersion(jdk)
+            if (jdkVersion != null && !jdkVersion.isAtLeast(JavaSdkVersion.JDK_17)) {
+                log.info("TransactionPlugin: skipping agent for '${configuration.name}' — requires JDK 17+ (detected ${jdkVersion.description})")
+                return
+            }
+        }
 
         val agentJar = resolveAgentJar() ?: run {
             log.warn("TransactionPlugin: agent JAR not found — transaction hints disabled")
