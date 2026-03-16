@@ -57,6 +57,7 @@ class TransactionJavaProgramPatcher : JavaProgramPatcher() {
 
         // 2. Extract from plugin JAR resources (dev / sandbox mode) — cached across launches.
         // extractionAttempted flag ensures we don't retry on failure (avoids repeated temp file creation).
+        // Double-checked locking — correct because both fields are @Volatile
         if (extractionAttempted) return extractedAgentJar
         return synchronized(Companion) {
             if (!extractionAttempted) {

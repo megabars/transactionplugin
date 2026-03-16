@@ -24,7 +24,7 @@ class TransactionTableModel : AbstractTableModel() {
     private var rows: List<TransactionRecord> = emptyList()
 
     fun setRecords(records: List<TransactionRecord>) {
-        rows = records.asReversed() // newest first
+        rows = records.asReversed() // view (no copy) — safe because getRecords() returns an immutable snapshot
         fireTableDataChanged()
     }
 

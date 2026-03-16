@@ -43,7 +43,9 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     companion object {
         const val MAX_RECORDS = 1000
         const val DEFAULT_PORT = 17321
-        /** Max JSON line length accepted from agent (1 MiB); guards against OOM on malformed input */
+        /** Max JSON line length accepted from agent (1 MiB).
+         *  Note: the line is already in memory when this check runs (BufferedReader reads eagerly),
+         *  so this does not prevent OOM — it limits processing of oversized messages, not allocation. */
         private const val MAX_LINE_BYTES = 1_048_576
 
         fun getInstance(): TransactionStore =
@@ -73,6 +75,9 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     /** Port actually bound (may differ from DEFAULT_PORT if in use) */
     @Volatile var port: Int = DEFAULT_PORT
         private set
+
+    /** True if the TCP server socket is bound and accepting connections */
+    val isListening: Boolean get() = serverSocket != null
 
     @Volatile private var serverSocket: ServerSocket? = null
 

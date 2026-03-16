@@ -192,7 +192,7 @@ public class TransactionInstrumentation {
             try {
                 SqlInterceptor.onSetParameter(index, value);
             } catch (Throwable t) {
-                // Must not throw from advice
+                TransactionInstrumentation.LOG.fine("[TX] SetParameter advice failed: " + t);
             }
         }
     }

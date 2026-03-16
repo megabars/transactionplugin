@@ -70,7 +70,8 @@ public class AgentMain {
                                 .and(ElementMatchers.not(ElementMatchers.nameStartsWith("java.")))
                                 .and(ElementMatchers.not(ElementMatchers.nameStartsWith("javax.")))
                                 .and(ElementMatchers.not(ElementMatchers.nameContains("Prepared")))
-                                .and(ElementMatchers.not(ElementMatchers.nameContains("Callable"))))
+                                .and(ElementMatchers.not(ElementMatchers.nameContains("Callable")))
+                                .and(ElementMatchers.not(ElementMatchers.nameContains("Abstract"))))
                 )
                 .transform(TransactionInstrumentation.buildTransformer())
                 .installOn(instrumentation);

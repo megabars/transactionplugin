@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Архитектура
 
 Два Gradle-модуля:
-- `agent/` — Java Agent (fat JAR, Byte Buddy 1.14.18, Java 17)
+- `agent/` — Java Agent (fat JAR, Byte Buddy 1.14.18, Java 11)
 - `plugin/` — IntelliJ Plugin (Kotlin, IJ Platform 2023.3+, Gson 2.11.0)
 
 IPC: агент → TCP localhost:17321 → плагин (newline-delimited JSON, ручная сериализация без Jackson).
@@ -75,9 +75,9 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 ## Ключевые решения
 
-**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321, 50, InetAddress.getLoopbackAddress())`; если занят — `ServerSocket(0, 50, loopback)` (случайный порт). Bind только на loopback — агент подключается к `127.0.0.1`, внешние соединения невозможны. `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга. На каждый принятый клиентский сокет устанавливается `soTimeout = 30_000` мс — если агент завис и не шлёт данные, поток-читатель разблокируется через 30 сек. Входящие строки ограничены `MAX_LINE_BYTES = 1 MiB` — проверка выполняется в байтах (`line.toByteArray(UTF_8).size`), строки сверх лимита логируются и пропускаются.
+**Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(17321, 50, InetAddress.getLoopbackAddress())`; если занят — `ServerSocket(0, 50, loopback)` (случайный порт). Bind только на loopback — агент подключается к `127.0.0.1`, внешние соединения невозможны. `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга. На каждый принятый клиентский сокет устанавливается `soTimeout = 30_000` мс — если агент завис и не шлёт данные, поток-читатель разблокируется через 30 сек. Входящие строки ограничены `MAX_LINE_BYTES = 1 MiB` — проверка выполняется в байтах (`line.toByteArray(UTF_8).size`) после чтения; строки сверх лимита логируются и пропускаются (не обрабатываются, но память уже выделена).
 
-**Проверка версии JVM** (`TransactionJavaProgramPatcher`): агент скомпилирован для Java 17 (class file version 61). Инъекция в JVM < 17 вызывает `UnsupportedClassVersionError` и fatal crash. Поэтому `patchJavaParameters()` проверяет версию JDK через `JavaSdk.getInstance().getVersion(jdk).isAtLeast(JavaSdkVersion.JDK_17)` — если JDK < 17, агент не инжектируется. Groovy-тесты на Java 11 и другие конфигурации с JVM < 17 работают корректно.
+**Проверка версии JVM** (`TransactionJavaProgramPatcher`): агент скомпилирован для Java 11 (class file version 55). Инъекция в JVM < 11 вызывает `UnsupportedClassVersionError` и fatal crash. Поэтому `patchJavaParameters()` проверяет версию JDK через `JavaSdk.getInstance().getVersion(jdk).isAtLeast(JavaSdkVersion.JDK_11)` — если JDK < 11, агент не инжектируется.
 
 **Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking — не извлекается заново при каждом запуске.
 
@@ -106,7 +106,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Stack trace исключения**: `buildStackTrace()` рекурсивно обходит цепочку `getCause()` (до 5 уровней, защита от циклических ссылок через `cause != t`), каждый уровень предваряется `Caused by:`. Это отображает реальную первопричину вместо верхнего wrapper-исключения.
 
-**Фильтр типов в AgentBuilder**: тайп-матчер для `Connection`-классов исключает `AbstractConnection` (`.not(nameContains("AbstractConnection"))`) — согласовано с `applyAdvice` в `TransactionInstrumentation`. Без этого абстрактные классы попадали бы под инструментацию, но `applyAdvice` их игнорировал, создавая лишний overhead.
+**Фильтр типов в AgentBuilder**: тайп-матчер исключает абстрактные классы: для `Connection` — `.not(nameContains("AbstractConnection"))` (согласовано с `applyAdvice`), для `Statement` — `.not(nameContains("Abstract"))`. Без этого абстрактные классы попадали бы под инструментацию, создавая лишний overhead.
 
 **Code Vision клик**: при клике на хинт открывается только popup с деталями транзакции — Tool Window больше не открывается принудительно.
 

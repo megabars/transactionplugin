@@ -38,6 +38,8 @@ public class SqlInterceptor {
 
     /** Max batch rows to accumulate params for; prevents OOM on huge bulk inserts. */
     private static final int MAX_BATCH_ROWS = 1000;
+    /** Max number of distinct parameter indices per PreparedStatement; guards against runaway re-binding. */
+    private static final int MAX_PARAMS_PER_STATEMENT = 200;
 
     /**
      * Called before PreparedStatement.addBatch() (no-arg).
@@ -139,7 +141,7 @@ public class SqlInterceptor {
         java.util.LinkedHashMap<Integer, Object> params = PREPARED_PARAMS.get();
         if (params == null) return;
         // Guard against runaway params (e.g. huge batch re-bindings before addBatch)
-        if (!params.containsKey(index) && params.size() >= 200) return;
+        if (!params.containsKey(index) && params.size() >= MAX_PARAMS_PER_STATEMENT) return;
         params.put(index, value);
         BATCH_ROW_CAPTURED.set(Boolean.FALSE); // new row is being prepared
     }

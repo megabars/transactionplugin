@@ -84,6 +84,9 @@ public class TransactionContext {
         r.sqlQueryCount       = sqlQueryCount;
         r.batchCount          = batchCount;
         r.sqlQueries          = new java.util.ArrayList<>(sqlQueries);
+        if (sqlQueryCount > sqlQueries.size()) {
+            r.sqlQueries.add("... (" + (sqlQueryCount - sqlQueries.size()) + " more queries not captured)");
+        }
         r.threadName          = threadName;
         if (exception != null) {
             r.exceptionType    = exception.getClass().getName();

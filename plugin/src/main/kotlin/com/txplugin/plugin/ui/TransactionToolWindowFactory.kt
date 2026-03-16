@@ -95,8 +95,15 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), D
             }
         }
 
-        val statusLabel = JLabel("Listening on port ${store.port}")
-        statusLabel.foreground = JBColor(Color(0, 130, 0), Color(100, 200, 100))
+        val statusLabel = if (store.isListening) {
+            JLabel("Listening on port ${store.port}").also {
+                it.foreground = JBColor(Color(0, 130, 0), Color(100, 200, 100))
+            }
+        } else {
+            JLabel("Not listening (port unavailable)").also {
+                it.foreground = JBColor.RED
+            }
+        }
 
         bar.add(JLabel("Filter:"))
         bar.add(filterCombo)
