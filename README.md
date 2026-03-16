@@ -88,7 +88,7 @@ cd transactionplugin
 # → plugin/build/distributions/plugin-0.3.0.zip
 ```
 
-**Requirements:** JDK 17+, Gradle 8.8 (wrapper included)
+**Requirements:** JDK 11+, Gradle 8.8 (wrapper included)
 
 ## Usage
 
@@ -110,8 +110,8 @@ transactionplugin/
 ## Requirements
 
 - IntelliJ IDEA 2023.3+ (Community or Ultimate)
-- Spring Boot 3.x application (Java 17+)
-- JDK 17+
+- Spring Boot 2.x or 3.x application
+- JDK 11+ for the monitored application (JDK 17+ for Spring Boot 3.x)
 
 ## License
 

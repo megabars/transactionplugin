@@ -22,13 +22,13 @@ class TransactionJavaProgramPatcher : JavaProgramPatcher() {
     override fun patchJavaParameters(executor: Executor, configuration: RunProfile, javaParameters: JavaParameters) {
         if (configuration !is ModuleBasedConfiguration<*, *>) return
 
-        // Agent is compiled for Java 17 — loading it on an older JVM causes a fatal crash.
-        // Skip injection silently when the run configuration uses JDK < 17.
+        // Agent is compiled for Java 11 — loading it on an older JVM causes a fatal crash.
+        // Skip injection silently when the run configuration uses JDK < 11.
         val jdk = javaParameters.jdk
         if (jdk != null) {
             val jdkVersion = JavaSdk.getInstance().getVersion(jdk)
-            if (jdkVersion != null && !jdkVersion.isAtLeast(JavaSdkVersion.JDK_17)) {
-                log.info("TransactionPlugin: skipping agent for '${configuration.name}' — requires JDK 17+ (detected ${jdkVersion.description})")
+            if (jdkVersion != null && !jdkVersion.isAtLeast(JavaSdkVersion.JDK_11)) {
+                log.info("TransactionPlugin: skipping agent for '${configuration.name}' — requires JDK 11+ (detected ${jdkVersion.description})")
                 return
             }
         }

@@ -3,9 +3,9 @@ plugins {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
-    toolchain { languageVersion.set(JavaLanguageVersion.of(17)) }
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+    toolchain { languageVersion.set(JavaLanguageVersion.of(11)) }
 }
 
 dependencies {
@@ -13,13 +13,13 @@ dependencies {
     implementation("net.bytebuddy:byte-buddy:1.14.18")
     implementation("net.bytebuddy:byte-buddy-agent:1.14.18")
     // Spring TX — compile-only, available at runtime from the target app's classpath
-    compileOnly("org.springframework:spring-tx:6.1.14")
-    compileOnly("org.springframework:spring-context:6.1.14")
+    compileOnly("org.springframework:spring-tx:5.3.39")
+    compileOnly("org.springframework:spring-context:5.3.39")
     // Test dependencies
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testImplementation("org.springframework:spring-tx:6.1.14")
-    testImplementation("org.springframework:spring-context:6.1.14")
+    testImplementation("org.springframework:spring-tx:5.3.39")
+    testImplementation("org.springframework:spring-context:5.3.39")
     testImplementation("com.google.code.gson:gson:2.11.0")
 }
 
