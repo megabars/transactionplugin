@@ -157,7 +157,7 @@ Plugin (Kotlin):
 **Refresh CodeVision**: перебираем все открытые `TextEditor` и инвалидируем явно по каждому (вариант с `editor=null` ненадёжен в IJ 2023.3). `.toList()` создаёт snapshot перед итерацией. `DaemonCodeAnalyzer` не использовать — вызывает задержку.
 
 Уведомление слушателей разделено на два независимых пути в `notifyListeners()`:
-- **Tool Window** — `AtomicBoolean.compareAndSet(false, true)` + `invokeLater`: коалесирует несколько вызовов с EDT, пока не выполнится предыдущий.
+- **Tool Window** — отдельный `AtomicBoolean` + `AppExecutorUtil.getAppScheduledExecutorService().schedule(..., 200, MILLISECONDS)`: дебаунс 200 мс. При массовом потоке транзакций предотвращает копирование 1000 записей и полный ресорт таблицы (`DefaultRowSorter.sort()` вызывает `getValueAt()` × 1000) на EDT при каждой транзакции. Без этого EDT занята `refreshTable()` и лагает при открытии Tool Window.
 - **CodeVision** — отдельный `AtomicBoolean` + `AppExecutorUtil.getAppScheduledExecutorService().schedule(..., 300, MILLISECONDS)`: дебаунс 300 мс. При массовом потоке транзакций предотвращает PSI-обход всех открытых редакторов на каждую транзакцию — не чаще одного раза в 300 мс.
 
 **Персистентность**: `TransactionStore` реализует `PersistentStateComponent`, сохраняет последнюю транзакцию каждого метода в `transactionStore.xml`.

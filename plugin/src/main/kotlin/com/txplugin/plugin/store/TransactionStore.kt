@@ -249,12 +249,16 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     }
 
     private fun notifyListeners() {
-        // 1. Tool Window refresh — coalesced: at most one invokeLater pending at a time.
+        // 1. Tool Window refresh — debounced 200 ms to avoid per-transaction table re-sorts on EDT.
+        //    Each incoming transaction batch triggers at most one full table rebuild per 200 ms window,
+        //    instead of one per transaction (which would block the EDT with 1000-row sort + copy).
         if (notifyPending.compareAndSet(false, true)) {
-            ApplicationManager.getApplication().invokeLater {
+            AppExecutorUtil.getAppScheduledExecutorService().schedule({
                 notifyPending.set(false)
-                listeners.forEach { it() }
-            }
+                ApplicationManager.getApplication().invokeLater {
+                    listeners.forEach { it() }
+                }
+            }, 200, TimeUnit.MILLISECONDS)
         }
 
         // 2. CodeVision refresh — debounced 300 ms to avoid per-transaction PSI tree walks.
