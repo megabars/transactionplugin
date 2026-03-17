@@ -8,8 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Архитектура
 
 Два Gradle-модуля:
-- `agent/` — Java Agent (fat JAR, Byte Buddy 1.14.18, Java 11)
-- `plugin/` — IntelliJ Plugin (Kotlin, IJ Platform 2023.3+, Gson 2.11.0)
+- `agent/` — Java Agent (fat JAR, Byte Buddy 1.14.18, Java 11, пакет `com.txplugin.agent`)
+- `plugin/` — IntelliJ Plugin (Kotlin 1.9.23, IJ Platform 2023.3 / `intellijPlatform` plugin 2.1.0, Gson 2.11.0, пакет `com.txplugin.plugin`)
+
+Версия плагина задаётся в корневом `build.gradle.kts` (поле `version`), текущая — 0.3.0.
 
 IPC: агент → TCP localhost:17321 → плагин (newline-delimited JSON, ручная сериализация без Jackson).
 
@@ -43,7 +45,16 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 `plugin/build.gradle.kts` копирует собранный agent JAR в `plugin/build/resources/main/agent/` через `processResources`. При установке плагин извлекает JAR из resources если нет файла `plugin/agent/transaction-agent.jar` (dev-path).
 
-**Тесты** — 104 unit-теста в пяти файлах (agent: 3 файла Java, plugin: 2 файла Kotlin). Запуск: `./gradlew :agent:test :plugin:test`.
+**Тесты** — 104 unit-теста в пяти файлах. Запуск: `./gradlew :agent:test :plugin:test`.
+
+Agent (Java):
+- `agent/src/test/java/com/txplugin/agent/JsonEscapeTest.java`
+- `agent/src/test/java/com/txplugin/agent/SqlInterceptorTest.java`
+- `agent/src/test/java/com/txplugin/agent/TransactionContextTest.java`
+
+Plugin (Kotlin):
+- `plugin/src/test/kotlin/com/txplugin/plugin/ui/TransactionTableModelTest.kt`
+- `plugin/src/test/kotlin/com/txplugin/plugin/model/TransactionRecordModelTest.kt`
 
 ```bash
 # Запуск одного тестового класса
@@ -59,24 +70,24 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 ## Ключевые файлы
 
-**Agent (Java):**
-- `agent/.../AgentMain.java` — `premain`/`agentmain`, парсит `port=PORT`, инициализирует Byte Buddy трансформер
-- `agent/.../TransactionInstrumentation.java` — advice-классы: TX (`invokeWithinTransaction`), PreparedStatement (execute/addBatch/executeBatch/setXxx), plain Statement
-- `agent/.../TransactionContext.java` — `ThreadLocal<Deque>` для nested TX; `push()`/`current()`/`pop()`
-- `agent/.../SocketReporter.java` — TCP-клиент, ring buffer 1000, reconnect каждые 3 сек, **ручная** JSON-сериализация (Jackson недоступен через system classloader)
-- `agent/.../SqlInterceptor.java` — static helpers для JDBC-interception; пять ThreadLocal: `PREPARED_SQL`, `PREPARED_PARAMS` (LinkedHashMap), `BATCH_ROW_CAPTURED`, `BATCH_EXEC_DEPTH` (int[], `.remove()` при возврате к 0), `BATCH_PARAMS_LIST`
-- `agent/.../TransactionRecord.java` — POJO, сериализуется вручную в `SocketReporter`; константа `MAX_SQL_QUERIES = 50` — лимит SQL-запросов на транзакцию
+**Agent (Java, пакет `com.txplugin.agent`):**
+- `agent/src/main/java/com/txplugin/agent/AgentMain.java` — `premain`/`agentmain`, парсит `port=PORT`, инициализирует Byte Buddy трансформер
+- `agent/src/main/java/com/txplugin/agent/TransactionInstrumentation.java` — advice-классы: TX (`invokeWithinTransaction`), PreparedStatement (execute/addBatch/executeBatch/setXxx), plain Statement
+- `agent/src/main/java/com/txplugin/agent/TransactionContext.java` — `ThreadLocal<Deque>` для nested TX; `push()`/`current()`/`pop()`
+- `agent/src/main/java/com/txplugin/agent/SocketReporter.java` — TCP-клиент, ring buffer 1000, reconnect каждые 3 сек, **ручная** JSON-сериализация (Jackson недоступен через system classloader)
+- `agent/src/main/java/com/txplugin/agent/SqlInterceptor.java` — static helpers для JDBC-interception; пять ThreadLocal: `PREPARED_SQL`, `PREPARED_PARAMS` (LinkedHashMap), `BATCH_ROW_CAPTURED`, `BATCH_EXEC_DEPTH` (int[], `.remove()` при возврате к 0), `BATCH_PARAMS_LIST`
+- `agent/src/main/java/com/txplugin/agent/TransactionRecord.java` — POJO, сериализуется вручную в `SocketReporter`; константа `MAX_SQL_QUERIES = 50` — лимит SQL-запросов на транзакцию
 
-**Plugin (Kotlin):**
-- `plugin/.../store/TransactionStore.kt` — **Application**-level service (не Project): TCP-сервер, ring buffer, persistence, listeners, CodeVision invalidation; парсит JSON через **Gson**
-- `plugin/.../settings/TransactionSettings.kt` — `PersistentStateComponent` с пользовательскими настройками (`maxRecords`, `port`, `showCodeVision`); сохраняется в `transactionSettings.xml`
-- `plugin/.../settings/TransactionSettingsConfigurable.kt` — UI настроек в **Settings → Tools → Transaction Monitor**
-- `plugin/.../run/TransactionJavaProgramPatcher.kt` — `JavaProgramPatcher`: добавляет `-javaagent=...=port=PORT` в Run Config
-- `plugin/.../ui/TransactionCodeVisionProvider.kt` — Code Vision lens над `@Transactional` методами
-- `plugin/.../ui/TransactionToolWindowFactory.kt` — Tool Window: JBSplitter с таблицей и деталями
-- `plugin/.../ui/TransactionDetailPanel.kt` — правая панель: SQL, метрики, кнопка навигации к методу
-- `plugin/.../ui/TransactionTableModel.kt` — модель таблицы для `JBTable`
-- `plugin/.../model/TransactionRecord.kt` — data class + `inlayHintText` (computed property с `get()`, **не** stored field — иначе Gson через no-arg конструктор вычислит значение из дефолтов и оно не обновится). `TransactionStatus` имеет `displayName` (`"COMMITTED"` / `"ROLLED BACK"` с пробелом) — используется в таблице вместо `name` для консистентного отображения с detail panel.
+**Plugin (Kotlin, пакет `com.txplugin.plugin`):**
+- `plugin/src/main/kotlin/com/txplugin/plugin/store/TransactionStore.kt` — **Application**-level service (не Project): TCP-сервер, ring buffer, persistence, listeners, CodeVision invalidation; парсит JSON через **Gson**
+- `plugin/src/main/kotlin/com/txplugin/plugin/settings/TransactionSettings.kt` — `PersistentStateComponent` с пользовательскими настройками (`maxRecords`, `port`, `showCodeVision`); сохраняется в `transactionSettings.xml`
+- `plugin/src/main/kotlin/com/txplugin/plugin/settings/TransactionSettingsConfigurable.kt` — UI настроек в **Settings → Tools → Transaction Monitor**
+- `plugin/src/main/kotlin/com/txplugin/plugin/run/TransactionJavaProgramPatcher.kt` — `JavaProgramPatcher`: добавляет `-javaagent=...=port=PORT` в Run Config
+- `plugin/src/main/kotlin/com/txplugin/plugin/ui/TransactionCodeVisionProvider.kt` — Code Vision lens над `@Transactional` методами
+- `plugin/src/main/kotlin/com/txplugin/plugin/ui/TransactionToolWindowFactory.kt` — Tool Window: JBSplitter с таблицей и деталями
+- `plugin/src/main/kotlin/com/txplugin/plugin/ui/TransactionDetailPanel.kt` — правая панель: SQL, метрики, кнопка навигации к методу; метод `clear()` сбрасывает все поля в начальное состояние (вызывается из кнопки Clear в тулбаре)
+- `plugin/src/main/kotlin/com/txplugin/plugin/ui/TransactionTableModel.kt` — модель таблицы для `JBTable`
+- `plugin/src/main/kotlin/com/txplugin/plugin/model/TransactionRecord.kt` — data class + `inlayHintText` (computed property с `get()`, **не** stored field — иначе Gson через no-arg конструктор вычислит значение из дефолтов и оно не обновится). `TransactionStatus` имеет `displayName` (`"COMMITTED"` / `"ROLLED BACK"` с пробелом) — используется в таблице вместо `name` для консистентного отображения с detail panel.
 
 ## Точки входа плагина (plugin.xml)
 
@@ -111,10 +122,11 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 **Перехват параметров PreparedStatement**: `SetParameterAdvice` перехватывает все `setXxx(int parameterIndex, value)` методы (кроме `setNull`). Параметры хранятся в `LinkedHashMap<Integer, Object>` — ключ по индексу дедуплицирует двойные вызовы от JDBC proxy. Форматируются как `[1='val', 2='val2']` и добавляются к SQL-строке в `sqlQueries`.
 
-**Proxy double-call**: JDBC connection pool оборачивает PreparedStatement в proxy, из-за чего `setXxx`, `addBatch`, `executeBatch` срабатывают дважды на одном потоке. Решения:
+**Proxy double-call**: JDBC connection pool оборачивает PreparedStatement в proxy, из-за чего `setXxx`, `addBatch`, `executeBatch`, `execute` срабатывают несколько раз на одном потоке. Решения:
 - `setXxx` — `LinkedHashMap.put()` перезаписывает по тому же ключу
 - `addBatch` — флаг `BATCH_ROW_CAPTURED` (сбрасывается при следующем `setXxx`)
 - `executeBatch` — depth-counter `BATCH_EXEC_DEPTH`: только первый (outermost) вызов считается
+- `execute`/`executeUpdate`/`executeQuery` — `getPreparedSql()` удаляет SQL из ThreadLocal при первом вызове; повторные вызовы получают `null` и игнорируются в `onPreparedExecute` (ранний `return`). Счётчик `sqlQueryCount` инкрементируется только когда `sql != null`.
 
 **`batchCount`**: количество строк добавленных через `addBatch()` (не количество вызовов `executeBatch()`). Отображается в Transaction Info и всплывающем окне хинта. `sqlQueryCount` инкрементируется один раз в `onBatchExecuteEnter()` (не в `onAddBatch()`) — один `executeBatch()` = один SQL-оператор.
 

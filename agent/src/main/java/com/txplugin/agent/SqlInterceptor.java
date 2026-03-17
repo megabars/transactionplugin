@@ -29,9 +29,11 @@ public class SqlInterceptor {
      */
     public static void onPreparedExecute(String sql, java.util.List<String> params) {
         TransactionContext ctx = TransactionContext.current();
-        if (ctx == null) return;
+        // sql is null when an inner proxy re-invokes execute() on the real PS —
+        // getPreparedSql() already removed the SQL on the outermost call, so skip.
+        if (ctx == null || sql == null) return;
         ctx.sqlQueryCount++;
-        if (sql != null && ctx.sqlQueries.size() < TransactionRecord.MAX_SQL_QUERIES) {
+        if (ctx.sqlQueries.size() < TransactionRecord.MAX_SQL_QUERIES) {
             ctx.sqlQueries.add(buildEntry(sql, params));
         }
     }

@@ -81,7 +81,10 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), D
         val bar = JPanel(FlowLayout(FlowLayout.LEFT, 6, 4))
 
         val clearBtn = JButton("Clear").also {
-            it.addActionListener { store.clear() }
+            it.addActionListener {
+                store.clear()
+                detailPanel.clear()
+            }
         }
 
         val filterCombo = JComboBox(arrayOf("All", "Committed", "Rolled Back")).also {

@@ -164,6 +164,18 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         navigateButton.isEnabled = false
     }
 
+    fun clear() {
+        currentRecord = null
+        navigateButton.isEnabled = false
+        titleLabel.text = "Select a transaction"
+        titleLabel.foreground = UIManager.getColor("Label.foreground")
+        metaValues.values.forEach { it.text = "" }
+        sqlArea.text = ""
+        exceptionArea.text = ""
+        revalidate()
+        repaint()
+    }
+
     fun showRecord(record: TransactionRecord) {
         currentRecord = record
         navigateButton.isEnabled = record.className.isNotEmpty()

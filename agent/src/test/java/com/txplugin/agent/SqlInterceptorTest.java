@@ -71,11 +71,24 @@ class SqlInterceptorTest {
     }
 
     @Test
-    void preparedExecute_nullSql_countsQueryButNoSqlAdded() {
-        // sqlQueryCount инкрементируется всегда, но запись в sqlQueries не добавляется
+    void preparedExecute_nullSql_isIgnored() {
+        // null sql означает re-invoke внутренним прокси — счётчик не трогаем
         SqlInterceptor.onPreparedExecute(null, List.of());
-        assertEquals(1, ctx.sqlQueryCount);
+        assertEquals(0, ctx.sqlQueryCount);
         assertEquals(0, ctx.sqlQueries.size());
+    }
+
+    @Test
+    void preparedExecute_proxyDoubleCall_countsOnce() {
+        // Имитирует двойной/тройной прокси-вызов:
+        // getPreparedSql() удаляет SQL из ThreadLocal при первом вызове,
+        // повторные вызовы получают null и должны быть проигнорированы.
+        String sql = "SELECT 1";
+        SqlInterceptor.onPreparedExecute(sql, List.of()); // outermost — sql не null
+        SqlInterceptor.onPreparedExecute(null, List.of()); // inner proxy re-invoke
+        SqlInterceptor.onPreparedExecute(null, List.of()); // real PS re-invoke
+        assertEquals(1, ctx.sqlQueryCount);
+        assertEquals(1, ctx.sqlQueries.size());
     }
 
     // ── onPrepareStatement + onSetParameter + getPreparedSql/Params ──────────
