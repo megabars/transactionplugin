@@ -75,6 +75,10 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     /** Listeners notified on EDT whenever new records arrive */
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
+    /** Coalescing flag: true if an invokeLater notification is already queued.
+     *  Prevents flooding the EDT when the agent sends many transactions in rapid succession. */
+    @Volatile private var notifyPending = false
+
     /** Port actually bound (may differ from DEFAULT_PORT if in use) */
     @Volatile var port: Int = DEFAULT_PORT
         private set
@@ -226,7 +230,10 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     }
 
     private fun notifyListeners() {
+        if (notifyPending) return
+        notifyPending = true
         ApplicationManager.getApplication().invokeLater {
+            notifyPending = false
             // 1. Notify Tool Window and other UI listeners
             listeners.forEach { it() }
 
