@@ -1,5 +1,6 @@
 plugins {
     java
+    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 java {
@@ -27,17 +28,31 @@ tasks.test {
     useJUnitPlatform()
 }
 
-// Fat JAR — agent must be self-contained
+val agentManifest = mapOf(
+    "Premain-Class" to "com.txplugin.agent.AgentMain",
+    "Agent-Class" to "com.txplugin.agent.AgentMain",
+    "Can-Redefine-Classes" to "true",
+    "Can-Retransform-Classes" to "true",
+    "Can-Set-Native-Method-Prefix" to "true"
+)
+
+// Regular jar — thin, used as input for shadowJar
 tasks.jar {
-    manifest {
-        attributes(
-            "Premain-Class" to "com.txplugin.agent.AgentMain",
-            "Agent-Class" to "com.txplugin.agent.AgentMain",
-            "Can-Redefine-Classes" to "true",
-            "Can-Retransform-Classes" to "true",
-            "Can-Set-Native-Method-Prefix" to "true"
-        )
-    }
-    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest { attributes(agentManifest) }
+}
+
+// Shadow (shaded) fat JAR — Byte Buddy relocated to avoid version conflicts
+// with the target app's own Byte Buddy (e.g. from Mockito, Hibernate, etc.)
+tasks.shadowJar {
+    manifest { attributes(agentManifest) }
+    // Relocate Byte Buddy to a private package so it never clashes with
+    // net.bytebuddy.* already on the app's classpath
+    relocate("net.bytebuddy", "com.txplugin.agent.bytebuddy")
+    mergeServiceFiles()
+    archiveClassifier.set("")
+}
+
+// shadowJar is the actual agent artifact — ensure it is built by default
+tasks.assemble {
+    dependsOn(tasks.shadowJar)
 }

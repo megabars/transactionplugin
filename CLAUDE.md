@@ -39,7 +39,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 ./gradlew :plugin:runIde
 ```
 
-Артефакт: `plugin/build/distributions/plugin-0.3.0.zip`
+Артефакт: `plugin/build/distributions/plugin-<version>.zip` (версия задаётся в корневом `build.gradle.kts`)
 
 `plugin/build.gradle.kts` копирует собранный agent JAR в `plugin/build/resources/main/agent/` через `processResources`. При установке плагин извлекает JAR из resources если нет файла `plugin/agent/transaction-agent.jar` (dev-path).
 
@@ -65,7 +65,7 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 - `agent/.../TransactionContext.java` — `ThreadLocal<Deque>` для nested TX; `push()`/`current()`/`pop()`
 - `agent/.../SocketReporter.java` — TCP-клиент, ring buffer 1000, reconnect каждые 3 сек, **ручная** JSON-сериализация (Jackson недоступен через system classloader)
 - `agent/.../SqlInterceptor.java` — static helpers для JDBC-interception; пять ThreadLocal: `PREPARED_SQL`, `PREPARED_PARAMS` (LinkedHashMap), `BATCH_ROW_CAPTURED`, `BATCH_EXEC_DEPTH` (int[], `.remove()` при возврате к 0), `BATCH_PARAMS_LIST`
-- `agent/.../TransactionRecord.java` — POJO, сериализуется вручную в `SocketReporter`
+- `agent/.../TransactionRecord.java` — POJO, сериализуется вручную в `SocketReporter`; константа `MAX_SQL_QUERIES = 50` — лимит SQL-запросов на транзакцию
 
 **Plugin (Kotlin):**
 - `plugin/.../store/TransactionStore.kt` — **Application**-level service (не Project): TCP-сервер, ring buffer, persistence, listeners, CodeVision invalidation; парсит JSON через **Gson**
@@ -100,6 +100,8 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 **Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking — не извлекается заново при каждом запуске.
 
 **Spring в агенте — `compileOnly`**: `spring-tx`/`spring-context` не входят в fat JAR агента — загружаются из classpath целевого приложения в рантайме.
+
+**Шейдинг Byte Buddy**: агент использует Shadow Gradle plugin (`com.github.johnrengelman.shadow`) и relocate `net.bytebuddy → com.txplugin.agent.bytebuddy`. Без этого крупные проекты (Mockito, Hibernate, Spring 3.x) приносят в classpath старую версию BB, она перекрывает агентскую, и `AbstractMethodError` на `AgentBuilder$Transformer.transform()` ломает всю инструментацию молча. После шейдинга классы `com.txplugin.agent.bytebuddy.*` не пересекаются с `net.bytebuddy.*` приложения. Задача `processResources` плагина ссылается на `:agent:shadowJar`, а не `:agent:jar`.
 
 **Classloader**: `appendToSystemClassLoaderSearch` — НЕ `appendToBootstrapClassLoaderSearch` (вызывает LinkageError из-за дублирования Byte Buddy). Метод называется `injectIntoSystemClassLoader`. `JarFile` передаётся в `appendToSystemClassLoaderSearch` и **намеренно не закрывается** — спецификация `Instrumentation` требует, чтобы он жил на протяжении всего classloader-а.
 

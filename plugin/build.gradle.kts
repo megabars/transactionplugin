@@ -101,9 +101,9 @@ intellijPlatform {
 
 // Copy built agent JAR into plugin resources before processing resources
 tasks.named("processResources") {
-    dependsOn(":agent:jar")
+    dependsOn(":agent:shadowJar")
     doLast {
-        val agentJar = project(":agent").tasks.named<Jar>("jar").get().archiveFile.get().asFile
+        val agentJar = project(":agent").tasks.named<Jar>("shadowJar").get().archiveFile.get().asFile
         val dest = layout.buildDirectory.dir("resources/main/agent").get().asFile
         dest.mkdirs()
         agentJar.copyTo(dest.resolve("transaction-agent.jar"), overwrite = true)
