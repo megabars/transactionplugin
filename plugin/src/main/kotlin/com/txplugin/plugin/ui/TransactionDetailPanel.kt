@@ -3,19 +3,23 @@ package com.txplugin.plugin.ui
 import com.github.vertical_blank.sqlformatter.SqlFormatter
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
+import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.NavigatablePsiElement
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.txplugin.plugin.model.TransactionRecord
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Component
 import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.GridBagConstraints
@@ -57,11 +61,12 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
     )
     private val metaPanel = buildMetaPanel()
 
-    // SQL list
-    private val sqlArea = JBTextArea(8, 60).also {
-        it.isEditable = false
-        it.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-        it.border = BorderFactory.createEmptyBorder(4, 6, 4, 6)
+    // SQL list — виртуализированный JBList: рендерит только видимые ячейки независимо
+    // от числа запросов, в отличие от JTextArea с одним гигантским документом.
+    private val sqlListModel = DefaultListModel<String>()
+    private val sqlList = JBList<String>(sqlListModel).also {
+        it.cellRenderer = SqlEntryRenderer()
+        it.selectionMode = ListSelectionModel.SINGLE_SELECTION
     }
 
     // Exception
@@ -154,7 +159,9 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         }
         val sqlPanel = JPanel(BorderLayout()).also {
             it.add(sqlHeaderPanel, BorderLayout.NORTH)
-            it.add(JBScrollPane(sqlArea), BorderLayout.CENTER)
+            it.add(JBScrollPane(sqlList).also { sp ->
+                sp.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
+            }, BorderLayout.CENTER)
         }
         val exceptionPanel = JPanel(BorderLayout()).also {
             it.add(sectionHeader("Exception / Rollback Cause"), BorderLayout.NORTH)
@@ -189,7 +196,7 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         titleLabel.text = "Select a transaction"
         titleLabel.foreground = UIManager.getColor("Label.foreground")
         metaValues.values.forEach { it.text = "" }
-        sqlArea.text = ""
+        sqlListModel.clear()
         exceptionArea.text = ""
         revalidate()
         repaint()
@@ -237,12 +244,16 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
     }
 
     private fun refreshSqlArea(record: TransactionRecord) {
-        sqlArea.text = when {
-            record.sqlQueries.isEmpty() -> "(none captured)"
-            isFormatted -> record.sqlQueries.joinToString("\n\n") { formatSqlEntry(it) }
-            else -> record.sqlQueries.joinToString("\n\n")
+        sqlListModel.clear()
+        if (record.sqlQueries.isEmpty()) {
+            sqlListModel.addElement("(none captured)")
+        } else if (isFormatted) {
+            record.sqlQueries.forEach { sqlListModel.addElement(formatSqlEntry(it)) }
+        } else {
+            record.sqlQueries.forEach { sqlListModel.addElement(it) }
         }
-        sqlArea.caretPosition = 0
+        // Прокрутка в начало списка
+        if (sqlListModel.size() > 0) sqlList.ensureIndexIsVisible(0)
     }
 
     private fun formatSqlEntry(entry: String): String {
@@ -284,18 +295,17 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
 
     /**
      * Navigates to the source of the current record using PSI.
-     * Looks up the PsiClass and then the specific PsiMethod by name,
-     * avoiding reliance on the (unreliable) lineNumber field.
+     * PSI index lookup runs on a background thread to avoid blocking EDT.
      * Only searches project sources — does not fall back to library classes.
      */
     private fun navigateToSource() {
         val record = currentRecord ?: return
 
-        val target: NavigatablePsiElement? = ReadAction.compute<NavigatablePsiElement?, Throwable> {
+        ReadAction.nonBlocking<NavigatablePsiElement?> {
             val facade = JavaPsiFacade.getInstance(project)
             val projectScope = GlobalSearchScope.projectScope(project)
 
-            val psiClass = facade.findClass(record.className, projectScope) ?: return@compute null
+            val psiClass = facade.findClass(record.className, projectScope) ?: return@nonBlocking null
 
             // Find the specific overload matching the record's parameter types
             val targetMethod: PsiMethod? = psiClass.findMethodsByName(record.methodName, true)
@@ -308,18 +318,48 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
                 ?: psiClass.findMethodsByName(record.methodName, true).firstOrNull()
 
             targetMethod ?: psiClass
-        }
+        }.finishOnUiThread(ModalityState.defaultModalityState()) { target ->
+            if (target == null) {
+                NotificationGroupManager.getInstance()
+                    .getNotificationGroup("TransactionMonitor")
+                    .createNotification(
+                        "Method not found in project sources: ${record.className}.${record.methodName}",
+                        NotificationType.WARNING
+                    )
+                    .notify(project)
+            } else {
+                target.navigate(true)
+            }
+        }.submit(AppExecutorUtil.getAppExecutorService())
+    }
+}
 
-        if (target == null) {
-            NotificationGroupManager.getInstance()
-                .getNotificationGroup("TransactionMonitor")
-                .createNotification(
-                    "Method not found in project sources: ${record.className}.${record.methodName}",
-                    NotificationType.WARNING
-                )
-                .notify(project)
-            return
-        }
-        target.navigate(true)
+/**
+ * Рендерер ячейки JBList для одного SQL-запроса.
+ *
+ * Один экземпляр JTextArea переиспользуется для всех ячеек (стандартный Swing-паттерн).
+ * JList виртуализирован: вызывает рендерер только для видимых ячеек, поэтому прокрутка
+ * остаётся O(visible_rows), а не O(total_lines) как было у JBTextArea с одним документом.
+ */
+private class SqlEntryRenderer : ListCellRenderer<String> {
+
+    private val textArea = JTextArea().apply {
+        isEditable = false
+        lineWrap = false
+        font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+        border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.LIGHT_GRAY),
+            BorderFactory.createEmptyBorder(4, 6, 6, 6)
+        )
+    }
+
+    override fun getListCellRendererComponent(
+        list: JList<out String>, value: String, index: Int,
+        isSelected: Boolean, cellHasFocus: Boolean
+    ): Component {
+        textArea.text = value
+        textArea.background = if (isSelected) list.selectionBackground else list.background
+        textArea.foreground = if (isSelected) list.selectionForeground else list.foreground
+        return textArea
     }
 }

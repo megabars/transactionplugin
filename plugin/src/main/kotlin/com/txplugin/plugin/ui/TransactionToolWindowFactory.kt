@@ -8,7 +8,6 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
-import com.txplugin.plugin.model.TransactionRecord
 import com.txplugin.plugin.model.TransactionStatus
 import com.txplugin.plugin.store.TransactionStore
 import java.awt.BorderLayout
@@ -16,7 +15,6 @@ import java.awt.Color
 import java.awt.Component
 import java.awt.FlowLayout
 import javax.swing.*
-import javax.swing.table.DefaultTableCellRenderer
 
 class TransactionToolWindowFactory : ToolWindowFactory {
 
@@ -35,7 +33,25 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), D
 
     private val store = TransactionStore.getInstance()
     private val tableModel = TransactionTableModel()
-    private val table = JBTable(tableModel)
+
+    // Fix #5: используем prepareRenderer на уровне JBTable вместо setDefaultRenderer,
+    // чтобы цвет строки выставлялся один раз на строку, а не через отдельный объект-рендерер.
+    private val committedBg = JBColor(Color(230, 255, 230), Color(30, 60, 30))
+    private val rolledBackBg = JBColor(Color(255, 230, 230), Color(70, 20, 20))
+    private val table = object : JBTable(tableModel) {
+        override fun prepareRenderer(renderer: javax.swing.table.TableCellRenderer, row: Int, column: Int): Component {
+            val comp = super.prepareRenderer(renderer, row, column)
+            if (!isRowSelected(row)) {
+                val modelRow = convertRowIndexToModel(row)
+                comp.background = when (tableModel.recordAt(modelRow)?.status) {
+                    TransactionStatus.COMMITTED   -> committedBg
+                    TransactionStatus.ROLLED_BACK -> rolledBackBg
+                    else -> background
+                }
+            }
+            return comp
+        }
+    }
     private val detailPanel = TransactionDetailPanel(project)
 
     // Filter state
@@ -48,15 +64,13 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), D
         add(buildToolbar(), BorderLayout.NORTH)
 
         // Configure table
+        // Fix #3: проверяем valueIsAdjusting — не вызываем showRecord во время drag/keyboard-навигации
+        // Fix #4: убираем mouseListener с double-click — selection listener уже обрабатывает выбор строки
         table.apply {
             autoCreateRowSorter = true
-            setDefaultRenderer(Any::class.java, StatusColorRenderer())
-            selectionModel.addListSelectionListener { onRowSelected() }
-            addMouseListener(object : java.awt.event.MouseAdapter() {
-                override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                    if (e.clickCount == 2) onRowSelected()
-                }
-            })
+            selectionModel.addListSelectionListener { e ->
+                if (!e.valueIsAdjusting) onRowSelected()
+            }
         }
         applyColumnWidths()
 
@@ -116,11 +130,29 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), D
         return bar
     }
 
+    // Fix #2: сохраняем выбранную строку по transactionId и восстанавливаем после fireTableDataChanged()
     private fun refreshTable() {
+        val selectedId = table.selectedRow
+            .takeIf { it >= 0 }
+            ?.let { table.convertRowIndexToModel(it) }
+            ?.let { tableModel.recordAt(it)?.transactionId }
+
         val all = store.getRecords()
         val filtered = if (statusFilter == null) all
                        else all.filter { it.status == statusFilter }
         tableModel.setRecords(filtered)
+
+        if (selectedId != null) {
+            val modelRow = (0 until tableModel.rowCount)
+                .firstOrNull { tableModel.recordAt(it)?.transactionId == selectedId }
+            if (modelRow != null) {
+                val viewRow = table.convertRowIndexToView(modelRow)
+                if (viewRow >= 0) {
+                    table.setRowSelectionInterval(viewRow, viewRow)
+                    table.scrollRectToVisible(table.getCellRect(viewRow, 0, true))
+                }
+            }
+        }
     }
 
     private fun onRowSelected() {
@@ -138,29 +170,3 @@ class TransactionPanel(private val project: Project) : JPanel(BorderLayout()), D
     }
 }
 
-/**
- * Colors table rows: green for COMMITTED, red for ROLLED_BACK.
- */
-private class StatusColorRenderer : DefaultTableCellRenderer() {
-
-    private val committedBg = JBColor(Color(230, 255, 230), Color(30, 60, 30))
-    private val rolledBackBg = JBColor(Color(255, 230, 230), Color(70, 20, 20))
-
-    override fun getTableCellRendererComponent(
-        table: JTable, value: Any?, isSelected: Boolean,
-        hasFocus: Boolean, row: Int, column: Int
-    ): Component {
-        val comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
-        if (!isSelected) {
-            val modelRow = table.convertRowIndexToModel(row)
-            val model = table.model as? TransactionTableModel ?: return comp
-            val record: TransactionRecord = model.recordAt(modelRow) ?: return comp
-            comp.background = when {
-                record.isCommitted  -> committedBg
-                record.isRolledBack -> rolledBackBg
-                else                -> table.background
-            }
-        }
-        return comp
-    }
-}

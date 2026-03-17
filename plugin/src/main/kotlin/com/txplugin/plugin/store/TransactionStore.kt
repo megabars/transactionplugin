@@ -112,10 +112,11 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     // ── PersistentStateComponent ──────────────────────────────────────────────
 
     override fun getState(): State {
+        // Снимаем snapshot под локом (быстрая копия ссылок), затем сериализуем через Gson вне лока —
+        // чтобы не блокировать addRecord() во время длительной сериализации большого кол-ва методов.
+        val snapshot = synchronized(lock) { latestByMethod.toMap() }
         val map = mutableMapOf<String, String>()
-        synchronized(lock) {
-            latestByMethod.forEach { (key, r) -> map[key] = gson.toJson(r) }
-        }
+        snapshot.forEach { (key, r) -> map[key] = gson.toJson(r) }
         return State(map)
     }
 
@@ -200,13 +201,22 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
             socket.use { s ->
                 s.soTimeout = 30_000
                 BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8)).use { reader ->
-                    reader.lineSequence().forEach { line ->
+                    while (!s.isClosed) {
+                        val line = try {
+                            reader.readLine()
+                        } catch (_: java.net.SocketTimeoutException) {
+                            // Агент жив, но не шлёт транзакции — продолжаем ждать.
+                            // soTimeout служит watchdog-ом: если сокет реально мёртв,
+                            // следующий readLine() вернёт null или IOException.
+                            continue
+                        }
+                        if (line == null) break // соединение закрыто агентом
                         val lineBytes = line.toByteArray(Charsets.UTF_8).size
                         if (lineBytes > MAX_LINE_BYTES) {
                             log.warn("TransactionStore: oversized line ($lineBytes bytes) — skipping")
-                            return@forEach
+                            continue
                         }
-                        val record = parseLine(line) ?: return@forEach
+                        val record = parseLine(line) ?: continue
                         addRecord(record)
                     }
                 }
