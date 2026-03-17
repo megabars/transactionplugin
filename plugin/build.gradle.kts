@@ -27,6 +27,8 @@ dependencies {
     }
     // Gson for JSON parsing in plugin
     implementation("com.google.code.gson:gson:2.11.0")
+    // SQL formatter for Detail Panel "Format SQL" button
+    implementation("com.github.vertical-blank:sql-formatter:2.0.5")
     // Test dependencies
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

@@ -1,5 +1,6 @@
 package com.txplugin.plugin.ui
 
+import com.github.vertical_blank.sqlformatter.SqlFormatter
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ReadAction
@@ -133,7 +134,7 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         background = UIManager.getColor("Panel.background")
 
         val topBar = JPanel(BorderLayout()).also {
-            it.add(titleLabel, BorderLayout.WEST)
+            it.add(titleLabel, BorderLayout.CENTER)
             val btnPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 2))
             btnPanel.add(navigateButton)
             it.add(btnPanel, BorderLayout.EAST)
@@ -255,39 +256,19 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         else
             sqlLine to ""
 
-        val formattedLines = formatSqlKeywords(sqlPart).lines()
+        val formatted = try {
+            SqlFormatter.format(sqlPart)
+        } catch (_: Exception) {
+            sqlPart
+        }
+
+        val formattedLines = formatted.lines()
         val sqlLines = if (batchSuffix.isNotEmpty())
             formattedLines.dropLast(1) + (formattedLines.last() + batchSuffix)
         else
             formattedLines
 
         return (sqlLines + paramLines).joinToString("\n")
-    }
-
-    private fun formatSqlKeywords(rawSql: String): String {
-        val newlineKeywords = listOf(
-            "LEFT OUTER JOIN", "RIGHT OUTER JOIN", "FULL OUTER JOIN",
-            "LEFT JOIN", "RIGHT JOIN", "INNER JOIN", "CROSS JOIN",
-            "ORDER BY", "GROUP BY", "UNION ALL",
-            "INSERT INTO", "DELETE FROM",
-            "SELECT", "FROM", "WHERE", "JOIN", "ON",
-            "UPDATE", "SET", "INSERT", "DELETE",
-            "VALUES", "HAVING", "LIMIT", "OFFSET",
-            "UNION", "WITH", "RETURNING"
-        )
-        var result = rawSql.trim()
-        for (kw in newlineKeywords) {
-            val pat = kw.split(" ").joinToString("""\s+""") { Regex.escape(it) }
-            result = Regex("""(?i)\b$pat\b""").replace(result) { "\n$kw" }
-        }
-        return result.lines().joinToString("\n") { line ->
-            val t = line.trim()
-            when {
-                t.startsWith("AND ", ignoreCase = true) -> "    $t"
-                t.startsWith("OR ",  ignoreCase = true) -> "    $t"
-                else -> t
-            }
-        }.trimStart('\n')
     }
 
     private fun sectionHeader(title: String): JComponent {
