@@ -19,7 +19,7 @@ class TransactionSettings : PersistentStateComponent<TransactionSettings.State> 
         var showCodeVision: Boolean = true
     )
 
-    private var state = State()
+    @Volatile private var state = State()
 
     override fun getState(): State = state
 

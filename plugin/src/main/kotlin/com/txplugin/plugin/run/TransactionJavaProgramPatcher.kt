@@ -49,7 +49,7 @@ class TransactionJavaProgramPatcher : JavaProgramPatcher() {
 
     private fun resolveAgentJar(): File? {
         // 1. Try plugin distribution directory (agent/ subfolder — production install)
-        val pluginDir = PluginManagerCore.getPlugin(PluginId.getId("com.txplugin"))?.pluginPath
+        val pluginDir = PluginManagerCore.getPlugin(PluginId.getId("com.github.megabars.transactionmonitor"))?.pluginPath
         if (pluginDir != null) {
             val fromDir = pluginDir.resolve("agent/transaction-agent.jar").toFile()
             if (fromDir.exists()) return fromDir

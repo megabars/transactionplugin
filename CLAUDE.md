@@ -110,13 +110,13 @@ Plugin (Kotlin):
 
 ## Ключевые решения
 
-**Настройки**: `TransactionSettings` (`PersistentStateComponent`, `transactionSettings.xml`) хранит `maxRecords` (100–10 000, default 1000), `port` (1024–65535, default 17321), `showCodeVision` (bool, default true). `TransactionStore` и `TransactionCodeVisionProvider` читают их напрямую через `TransactionSettings.getInstance()`. Изменение порта вступает в силу после перезапуска IDE. Изменение `showCodeVision` мгновенно инвалидирует Code Vision через `CodeVisionHost`.
+**Настройки**: `TransactionSettings` (`PersistentStateComponent`, `transactionSettings.xml`) хранит `maxRecords` (100–10 000, default 1000), `port` (1024–65535, default 17321), `showCodeVision` (bool, default true). `TransactionStore` и `TransactionCodeVisionProvider` читают их напрямую через `TransactionSettings.getInstance()`. Изменение порта вступает в силу после перезапуска IDE. Изменение `showCodeVision` мгновенно инвалидирует Code Vision через `CodeVisionHost`. Поле `state` помечено `@Volatile` — настройки читаются из IO-потоков агента (через `TransactionStore.addRecord`) и должны быть видимы без барьера синхронизации.
 
 **Порт и фоллбэк**: `TransactionStore` биндит `ServerSocket(TransactionSettings.port, 50, InetAddress.getLoopbackAddress())`; если занят — `ServerSocket(0, 50, loopback)` (случайный порт). Bind только на loopback — агент подключается к `127.0.0.1`, внешние соединения невозможны. `TransactionJavaProgramPatcher` читает `TransactionStore.getInstance().port`, поэтому агент всегда получает корректный порт автоматически. `bindServerSocket()` вызывается **синхронно** в `init`-блоке (не в фоновом потоке) — иначе patcher прочитает `port=0` до завершения биндинга. На каждый принятый клиентский сокет устанавливается `soTimeout = 30_000` мс — если агент завис и не шлёт данные, поток-читатель разблокируется через 30 сек. Входящие строки ограничены `MAX_LINE_BYTES = 1 MiB` — проверка выполняется в байтах (`line.toByteArray(UTF_8).size`) после чтения; строки сверх лимита логируются и пропускаются (не обрабатываются, но память уже выделена).
 
 **Проверка версии JVM** (`TransactionJavaProgramPatcher`): агент скомпилирован для Java 11 (class file version 55). Инъекция в JVM < 11 вызывает `UnsupportedClassVersionError` и fatal crash. Поэтому `patchJavaParameters()` проверяет версию JDK через `JavaSdk.getInstance().getVersion(jdk).isAtLeast(JavaSdkVersion.JDK_11)` — если JDK < 11, агент не инжектируется.
 
-**Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking — не извлекается заново при каждом запуске.
+**Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install, PluginId = `"com.github.megabars.transactionmonitor"`), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking — не извлекается заново при каждом запуске.
 
 **Spring в агенте — `compileOnly`**: `spring-tx`/`spring-context` не входят в fat JAR агента — загружаются из classpath целевого приложения в рантайме.
 
@@ -154,17 +154,11 @@ Plugin (Kotlin):
 
 **Навигация к источнику**: реализована через PSI (`findMethodsByName` + сравнение `parameterTypes`), не через `lineNumber` (поле не заполняется агентом).
 
-**Refresh CodeVision**: перебираем все открытые `TextEditor` и инвалидируем явно по каждому (вариант с `editor=null` ненадёжен в IJ 2023.3). `.toList()` создаёт snapshot перед итерацией:
-```kotlin
-FileEditorManager.getInstance(project).allEditors.toList()
-    .filterIsInstance<TextEditor>()
-    .forEach { fileEditor ->
-        codeVisionHost.invalidateProvider(
-            CodeVisionHost.LensInvalidateSignal(fileEditor.editor, listOf(TransactionCodeVisionProvider.ID))
-        )
-    }
-```
-`DaemonCodeAnalyzer` не использовать — вызывает задержку.
+**Refresh CodeVision**: перебираем все открытые `TextEditor` и инвалидируем явно по каждому (вариант с `editor=null` ненадёжен в IJ 2023.3). `.toList()` создаёт snapshot перед итерацией. `DaemonCodeAnalyzer` не использовать — вызывает задержку.
+
+Уведомление слушателей разделено на два независимых пути в `notifyListeners()`:
+- **Tool Window** — `AtomicBoolean.compareAndSet(false, true)` + `invokeLater`: коалесирует несколько вызовов с EDT, пока не выполнится предыдущий.
+- **CodeVision** — отдельный `AtomicBoolean` + `AppExecutorUtil.getAppScheduledExecutorService().schedule(..., 300, MILLISECONDS)`: дебаунс 300 мс. При массовом потоке транзакций предотвращает PSI-обход всех открытых редакторов на каждую транзакцию — не чаще одного раза в 300 мс.
 
 **Персистентность**: `TransactionStore` реализует `PersistentStateComponent`, сохраняет последнюю транзакцию каждого метода в `transactionStore.xml`.
 

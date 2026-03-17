@@ -21,6 +21,9 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import com.intellij.util.concurrency.AppExecutorUtil
 
 /**
  * Application-level service that:
@@ -75,9 +78,11 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     /** Listeners notified on EDT whenever new records arrive */
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
-    /** Coalescing flag: true if an invokeLater notification is already queued.
-     *  Prevents flooding the EDT when the agent sends many transactions in rapid succession. */
-    @Volatile private var notifyPending = false
+    /** Coalescing flag for Tool Window refresh: prevents flooding the EDT. */
+    private val notifyPending = AtomicBoolean(false)
+
+    /** Debounce flag for CodeVision refresh: at most one PSI walk per 300 ms. */
+    private val codeVisionRefreshPending = AtomicBoolean(false)
 
     /** Port actually bound (may differ from DEFAULT_PORT if in use) */
     @Volatile var port: Int = DEFAULT_PORT
@@ -169,7 +174,11 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
         while (!ss.isClosed) {
             try {
                 val client = ss.accept()
-                executor.submit { handleClient(client) }
+                try {
+                    executor.submit { handleClient(client) }
+                } catch (_: java.util.concurrent.RejectedExecutionException) {
+                    try { client.close() } catch (_: Exception) {}
+                }
             } catch (e: Exception) {
                 if (ss.isClosed) break
                 log.warn("TransactionStore: accept() error — retrying: ${e.message}")
@@ -230,30 +239,39 @@ class TransactionStore : PersistentStateComponent<TransactionStore.State>, com.i
     }
 
     private fun notifyListeners() {
-        if (notifyPending) return
-        notifyPending = true
-        ApplicationManager.getApplication().invokeLater {
-            notifyPending = false
-            // 1. Notify Tool Window and other UI listeners
-            listeners.forEach { it() }
-
-            // 2. Force CodeVision refresh via CodeVisionHost (immediate, no daemon delay).
-            // Передаём конкретный Editor для каждого открытого файла, так как
-            // LensInvalidateSignal(null, ...) ненадёжно тригерит перевалидацию в IJ 2023.3.
-            ProjectManager.getInstance().openProjects.toList().forEach { project ->
-                if (project.isDisposed) return@forEach
-                val codeVisionHost = project.getService(CodeVisionHost::class.java) ?: return@forEach
-                FileEditorManager.getInstance(project).allEditors.toList()
-                    .filterIsInstance<TextEditor>()
-                    .forEach { fileEditor ->
-                        codeVisionHost.invalidateProvider(
-                            CodeVisionHost.LensInvalidateSignal(
-                                fileEditor.editor,
-                                listOf(TransactionCodeVisionProvider.ID)
-                            )
-                        )
-                    }
+        // 1. Tool Window refresh — coalesced: at most one invokeLater pending at a time.
+        if (notifyPending.compareAndSet(false, true)) {
+            ApplicationManager.getApplication().invokeLater {
+                notifyPending.set(false)
+                listeners.forEach { it() }
             }
+        }
+
+        // 2. CodeVision refresh — debounced 300 ms to avoid per-transaction PSI tree walks.
+        //    Each incoming transaction batch triggers at most one PSI walk per open editor
+        //    per 300 ms window, instead of one per transaction.
+        if (codeVisionRefreshPending.compareAndSet(false, true)) {
+            AppExecutorUtil.getAppScheduledExecutorService().schedule({
+                codeVisionRefreshPending.set(false)
+                ApplicationManager.getApplication().invokeLater {
+                    // Передаём конкретный Editor для каждого открытого файла, так как
+                    // LensInvalidateSignal(null, ...) ненадёжно тригерит перевалидацию в IJ 2023.3.
+                    ProjectManager.getInstance().openProjects.toList().forEach { project ->
+                        if (project.isDisposed) return@forEach
+                        val codeVisionHost = project.getService(CodeVisionHost::class.java) ?: return@forEach
+                        FileEditorManager.getInstance(project).allEditors.toList()
+                            .filterIsInstance<TextEditor>()
+                            .forEach { fileEditor ->
+                                codeVisionHost.invalidateProvider(
+                                    CodeVisionHost.LensInvalidateSignal(
+                                        fileEditor.editor,
+                                        listOf(TransactionCodeVisionProvider.ID)
+                                    )
+                                )
+                            }
+                    }
+                }
+            }, 300, TimeUnit.MILLISECONDS)
         }
     }
 }
