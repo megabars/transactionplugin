@@ -74,6 +74,10 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
     // Navigate button
     private val navigateButton = JButton("Navigate to source")
 
+    // SQL formatting toggle
+    private var isFormatted = false
+    private val formatButton = JButton("Format SQL").also { it.isEnabled = false }
+
     private var currentRecord: TransactionRecord? = null
 
     init {
@@ -143,8 +147,12 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         }
 
         // SQL and Exception panels split vertically — both resizable by drag
+        val sqlHeaderPanel = JPanel(BorderLayout()).also { hp ->
+            hp.add(sectionHeader("SQL Queries"), BorderLayout.CENTER)
+            hp.add(formatButton, BorderLayout.EAST)
+        }
         val sqlPanel = JPanel(BorderLayout()).also {
-            it.add(sectionHeader("SQL Queries"), BorderLayout.NORTH)
+            it.add(sqlHeaderPanel, BorderLayout.NORTH)
             it.add(JBScrollPane(sqlArea), BorderLayout.CENTER)
         }
         val exceptionPanel = JPanel(BorderLayout()).also {
@@ -162,11 +170,21 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
 
         navigateButton.addActionListener { navigateToSource() }
         navigateButton.isEnabled = false
+
+        formatButton.addActionListener {
+            val record = currentRecord ?: return@addActionListener
+            isFormatted = !isFormatted
+            formatButton.text = if (isFormatted) "Raw SQL" else "Format SQL"
+            refreshSqlArea(record)
+        }
     }
 
     fun clear() {
         currentRecord = null
         navigateButton.isEnabled = false
+        isFormatted = false
+        formatButton.text = "Format SQL"
+        formatButton.isEnabled = false
         titleLabel.text = "Select a transaction"
         titleLabel.foreground = UIManager.getColor("Label.foreground")
         metaValues.values.forEach { it.text = "" }
@@ -179,6 +197,9 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
     fun showRecord(record: TransactionRecord) {
         currentRecord = record
         navigateButton.isEnabled = record.className.isNotEmpty()
+        isFormatted = false
+        formatButton.text = "Format SQL"
+        formatButton.isEnabled = record.sqlQueries.isNotEmpty()
 
         val statusColor = if (record.isCommitted) JBColor(Color(0, 130, 0), Color(100, 200, 100))
                           else JBColor.RED
@@ -200,8 +221,7 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
         metaValues["Timeout"]?.text     = if (record.timeout < 0) "none" else "${record.timeout}s"
         metaValues["Batch rows"]?.text  = if (record.batchCount > 0) "${record.batchCount}" else "—"
 
-        sqlArea.text = if (record.sqlQueries.isEmpty()) "(none captured)"
-                       else record.sqlQueries.joinToString("\n\n")
+        refreshSqlArea(record)
 
         exceptionArea.text = when {
             record.exceptionType != null -> buildString {
@@ -213,6 +233,61 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
 
         revalidate()
         repaint()
+    }
+
+    private fun refreshSqlArea(record: TransactionRecord) {
+        sqlArea.text = when {
+            record.sqlQueries.isEmpty() -> "(none captured)"
+            isFormatted -> record.sqlQueries.joinToString("\n\n") { formatSqlEntry(it) }
+            else -> record.sqlQueries.joinToString("\n\n")
+        }
+        sqlArea.caretPosition = 0
+    }
+
+    private fun formatSqlEntry(entry: String): String {
+        val lines = entry.lines()
+        val sqlLine = lines.first()
+        val paramLines = lines.drop(1)
+
+        val batchIdx = sqlLine.indexOf("  [batch:")
+        val (sqlPart, batchSuffix) = if (batchIdx >= 0)
+            sqlLine.substring(0, batchIdx) to sqlLine.substring(batchIdx)
+        else
+            sqlLine to ""
+
+        val formattedLines = formatSqlKeywords(sqlPart).lines()
+        val sqlLines = if (batchSuffix.isNotEmpty())
+            formattedLines.dropLast(1) + (formattedLines.last() + batchSuffix)
+        else
+            formattedLines
+
+        return (sqlLines + paramLines).joinToString("\n")
+    }
+
+    private fun formatSqlKeywords(rawSql: String): String {
+        val newlineKeywords = listOf(
+            "LEFT OUTER JOIN", "RIGHT OUTER JOIN", "FULL OUTER JOIN",
+            "LEFT JOIN", "RIGHT JOIN", "INNER JOIN", "CROSS JOIN",
+            "ORDER BY", "GROUP BY", "UNION ALL",
+            "INSERT INTO", "DELETE FROM",
+            "SELECT", "FROM", "WHERE", "JOIN", "ON",
+            "UPDATE", "SET", "INSERT", "DELETE",
+            "VALUES", "HAVING", "LIMIT", "OFFSET",
+            "UNION", "WITH", "RETURNING"
+        )
+        var result = rawSql.trim()
+        for (kw in newlineKeywords) {
+            val pat = kw.split(" ").joinToString("""\s+""") { Regex.escape(it) }
+            result = Regex("""(?i)\b$pat\b""").replace(result) { "\n$kw" }
+        }
+        return result.lines().joinToString("\n") { line ->
+            val t = line.trim()
+            when {
+                t.startsWith("AND ", ignoreCase = true) -> "    $t"
+                t.startsWith("OR ",  ignoreCase = true) -> "    $t"
+                else -> t
+            }
+        }.trimStart('\n')
     }
 
     private fun sectionHeader(title: String): JComponent {

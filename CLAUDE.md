@@ -5,15 +5,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Язык общения
 Только русский.
 
+## Что это
+
+IntelliJ IDEA плагин для real-time мониторинга Spring Boot транзакций: перехватывает `@Transactional`-методы через Java Agent (Byte Buddy), собирает SQL + параметры, показывает статистику как Code Vision lens над методами и в Tool Window. Не требует изменений в коде приложения.
+
 ## Архитектура
 
 Два Gradle-модуля:
 - `agent/` — Java Agent (fat JAR, Byte Buddy 1.14.18, Java 11, пакет `com.txplugin.agent`)
 - `plugin/` — IntelliJ Plugin (Kotlin 1.9.23, IJ Platform 2023.3 / `intellijPlatform` plugin 2.1.0, Gson 2.11.0, пакет `com.txplugin.plugin`)
 
-Версия плагина задаётся в корневом `build.gradle.kts` (поле `version`), текущая — 0.3.0.
+Версия плагина задаётся в корневом `build.gradle.kts` (поле `version`).
 
 IPC: агент → TCP localhost:17321 → плагин (newline-delimited JSON, ручная сериализация без Jackson).
+
+Поля IPC JSON (одна строка = одна транзакция):
+`methodKey`, `className`, `methodName`, `status` (`COMMITTED`/`ROLLED_BACK`), `durationMs`, `propagation`, `isolation`, `readOnly`, `sqlQueries` (array строк), `sqlQueryCount`, `batchCount`, `exceptionType`, `exceptionMessage`, `stackTrace`.
 
 ```
 Spring Boot App                     IntelliJ Plugin
@@ -79,6 +86,7 @@ Plugin (Kotlin):
 - `agent/src/main/java/com/txplugin/agent/TransactionRecord.java` — POJO, сериализуется вручную в `SocketReporter`; константа `MAX_SQL_QUERIES = 50` — лимит SQL-запросов на транзакцию
 
 **Plugin (Kotlin, пакет `com.txplugin.plugin`):**
+- `plugin/src/main/resources/META-INF/plugin.xml` — регистрация всех 7 расширений (точки входа)
 - `plugin/src/main/kotlin/com/txplugin/plugin/store/TransactionStore.kt` — **Application**-level service (не Project): TCP-сервер, ring buffer, persistence, listeners, CodeVision invalidation; парсит JSON через **Gson**
 - `plugin/src/main/kotlin/com/txplugin/plugin/settings/TransactionSettings.kt` — `PersistentStateComponent` с пользовательскими настройками (`maxRecords`, `port`, `showCodeVision`); сохраняется в `transactionSettings.xml`
 - `plugin/src/main/kotlin/com/txplugin/plugin/settings/TransactionSettingsConfigurable.kt` — UI настроек в **Settings → Tools → Transaction Monitor**
