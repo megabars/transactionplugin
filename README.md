@@ -76,7 +76,7 @@ TransactionCodeVisionProvider
 ## Installation
 
 ### From release ZIP
-1. Download `plugin-0.3.0.zip` from [Releases](../../releases)
+1. Download `plugin-0.4.0.zip` from [Releases](../../releases)
 2. **Settings → Plugins → ⚙ → Install Plugin from Disk** → select the ZIP
 3. Restart IDE
 
@@ -85,7 +85,7 @@ TransactionCodeVisionProvider
 git clone https://github.com/megabars/transactionplugin
 cd transactionplugin
 ./gradlew clean :plugin:buildPlugin
-# → plugin/build/distributions/plugin-0.3.0.zip
+# → plugin/build/distributions/plugin-0.4.0.zip
 ```
 
 **Requirements:** JDK 11+, Gradle 8.8 (wrapper included)

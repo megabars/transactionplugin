@@ -44,7 +44,7 @@ intellijPlatform {
     pluginConfiguration {
         id = "com.github.megabars.transactionmonitor"
         name = "Transaction Monitor"
-        version = "0.3.0"
+        version = rootProject.version.toString()
 
         vendor {
             name = "megabars"
