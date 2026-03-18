@@ -203,8 +203,10 @@ class TransactionDetailPanel(private val project: Project) : JPanel(BorderLayout
     }
 
     fun showRecord(record: TransactionRecord) {
+        val sameRecord = currentRecord?.transactionId == record.transactionId
         currentRecord = record
         navigateButton.isEnabled = record.className.isNotEmpty()
+        if (sameRecord) return
         isFormatted = false
         formatButton.text = "Format SQL"
         formatButton.isEnabled = record.sqlQueries.isNotEmpty()
