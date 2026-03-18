@@ -35,6 +35,12 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
   ↓ NDJSON                          TransactionJavaProgramPatcher (-javaagent injection)
 ```
 
+## Требования к окружению
+
+- JDK 17+ для сборки плагина (IJ Platform 2023.3 требует Java 17)
+- JDK 11+ для целевого Spring Boot приложения (agent скомпилирован под Java 11)
+- Gradle 8.8 (wrapper включён — `./gradlew`)
+
 ## Сборка и запуск
 
 ```bash

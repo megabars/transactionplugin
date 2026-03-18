@@ -18,7 +18,7 @@ import java.util.logging.Logger;
  */
 public class TransactionInstrumentation {
 
-    static final Logger LOG = Logger.getLogger(TransactionInstrumentation.class.getName());
+    public static final Logger LOG = Logger.getLogger(TransactionInstrumentation.class.getName());
 
     // =========================================================================
     // 1. TransactionAspectSupport.invokeWithinTransaction

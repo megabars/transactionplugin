@@ -22,6 +22,10 @@ class TransactionJavaProgramPatcher : JavaProgramPatcher() {
     override fun patchJavaParameters(executor: Executor, configuration: RunProfile, javaParameters: JavaParameters) {
         if (configuration !is ModuleBasedConfiguration<*, *>) return
 
+        // Skip test run configurations — agent is not needed for tests and causes interference.
+        val typeId = configuration.type.id
+        if (typeId in setOf("JUnit", "TestNG", "KotlinTest")) return
+
         // Agent is compiled for Java 11 — loading it on an older JVM causes a fatal crash.
         // Skip injection silently when the run configuration uses JDK < 11.
         val jdk = javaParameters.jdk
