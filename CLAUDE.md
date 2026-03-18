@@ -56,6 +56,13 @@ SocketReporter (TCP client)         TransactionToolWindowFactory (Table + Detail
 
 Артефакт: `plugin/build/distributions/plugin-<version>.zip` (версия задаётся в корневом `build.gradle.kts`)
 
+## Релиз
+
+Релиз публикуется автоматически через GitHub Actions (`.github/workflows/release.yml`):
+1. Задать версию в корневом `build.gradle.kts`
+2. Создать и запушить тег: `git tag v<version> && git push origin v<version>`
+3. CI запускает тесты, собирает плагин, верифицирует и создаёт GitHub Release с ZIP-артефактом
+
 `plugin/build.gradle.kts` копирует собранный agent JAR в `plugin/build/resources/main/agent/` через `processResources`. При установке плагин извлекает JAR из resources если нет файла `plugin/agent/transaction-agent.jar` (dev-path).
 
 **Тесты** — 104 unit-теста в пяти файлах. Запуск: `./gradlew :agent:test :plugin:test`.

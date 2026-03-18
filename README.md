@@ -2,6 +2,8 @@
 
 Real-time Spring Boot transaction monitoring plugin. Shows completed transaction statistics as **inlay hints** above `@Transactional` methods and in a dedicated **Tool Window** — no code changes required in your application.
 
+> **Scope:** the plugin is designed specifically for Spring's `@Transactional` annotation (declarative transaction management via `TransactionAspectSupport`). Programmatic alternatives — `TransactionTemplate`, direct `PlatformTransactionManager` calls, or plain JDBC transactions — are not captured.
+
 ## Features
 
 - **Inlay hints** above `@Transactional` methods:
