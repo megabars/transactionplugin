@@ -99,7 +99,7 @@ Plugin (Kotlin):
 - `plugin/src/main/kotlin/com/txplugin/plugin/run/TransactionJavaProgramPatcher.kt` — `JavaProgramPatcher`: добавляет `-javaagent=...=port=PORT` в Run Config
 - `plugin/src/main/kotlin/com/txplugin/plugin/ui/TransactionCodeVisionProvider.kt` — Code Vision lens над `@Transactional` методами
 - `plugin/src/main/kotlin/com/txplugin/plugin/ui/TransactionToolWindowFactory.kt` — Tool Window: JBSplitter с таблицей и деталями
-- `plugin/src/main/kotlin/com/txplugin/plugin/ui/TransactionDetailPanel.kt` — правая панель: SQL, метрики, кнопка навигации к методу; метод `clear()` сбрасывает все поля в начальное состояние (вызывается из кнопки Clear в тулбаре)
+- `plugin/src/main/kotlin/com/txplugin/plugin/ui/TransactionDetailPanel.kt` — правая панель: SQL, метрики, кнопка навигации к методу; метод `clear()` сбрасывает все поля в начальное состояние (вызывается из кнопки Clear в тулбаре); `showRecord()` при одинаковом `transactionId` завершается сразу (`return`) — не трогает UI, сохраняя скролл и состояние Format SQL при обновлениях таблицы
 - `plugin/src/main/kotlin/com/txplugin/plugin/ui/TransactionTableModel.kt` — модель таблицы для `JBTable`
 - `plugin/src/main/kotlin/com/txplugin/plugin/model/TransactionRecord.kt` — data class + `inlayHintText` (computed property с `get()`, **не** stored field — иначе Gson через no-arg конструктор вычислит значение из дефолтов и оно не обновится). `TransactionStatus` имеет `displayName` (`"COMMITTED"` / `"ROLLED BACK"` с пробелом) — используется в таблице вместо `name` для консистентного отображения с detail panel.
 
@@ -122,7 +122,11 @@ Plugin (Kotlin):
 
 **Проверка версии JVM** (`TransactionJavaProgramPatcher`): агент скомпилирован для Java 11 (class file version 55). Инъекция в JVM < 11 вызывает `UnsupportedClassVersionError` и fatal crash. Поэтому `patchJavaParameters()` проверяет версию JDK через `JavaSdk.getInstance().getVersion(jdk).isAtLeast(JavaSdkVersion.JDK_11)` — если JDK < 11, агент не инжектируется.
 
+**Исключение тестовых конфигураций** (`TransactionJavaProgramPatcher`): `patchJavaParameters()` проверяет `configuration.type.id` и пропускает конфигурации с typeId `"JUnit"`, `"TestNG"`, `"KotlinTest"` — агент не нужен во время тестов и может мешать. Gradle/Maven тесты не затрагиваются, поскольку их конфигурации не являются `ModuleBasedConfiguration` и отсекаются ещё первой проверкой.
+
 **Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install, PluginId = `"com.github.megabars.transactionmonitor"`), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking — не извлекается заново при каждом запуске.
+
+**`LOG` в advice-классах должен быть `public`**: Byte Buddy `@Advice` инлайнит байткод advice-метода в целевой класс (`TransactionAspectSupport`). JVM затем проверяет права доступа от имени целевого класса — если поле `LOG` в `TransactionInstrumentation` package-private, возникает `IllegalAccessError`. Все статические поля/методы `TransactionInstrumentation`, к которым обращается advice-код, обязаны быть `public`.
 
 **Spring в агенте — `compileOnly`**: `spring-tx`/`spring-context` не входят в fat JAR агента — загружаются из classpath целевого приложения в рантайме.
 
