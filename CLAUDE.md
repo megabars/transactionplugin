@@ -175,6 +175,8 @@ Plugin (Kotlin):
 
 **Refresh CodeVision**: перебираем все открытые `TextEditor` и инвалидируем явно по каждому (вариант с `editor=null` ненадёжен в IJ 2023.3). `.toList()` создаёт snapshot перед итерацией. `DaemonCodeAnalyzer` не использовать — вызывает задержку.
 
+**Dumb mode в CodeVision**: `computeCodeVision` вызывается и во время индексирования проекта. `isTransactional()` → `hasAnnotation(TRANSACTIONAL_FQN)` обращается к PSI-индексу и бросает `IndexNotReadyException`. В начале `computeCodeVision` проверяем `DumbService.isDumb(project)` — если true, возвращаем `CodeVisionState.NotReady` (не `READY_EMPTY`): платформа сама перезапросит линзы после окончания индексирования.
+
 Уведомление слушателей разделено на два независимых пути в `notifyListeners()`:
 - **Tool Window** — отдельный `AtomicBoolean` + `AppExecutorUtil.getAppScheduledExecutorService().schedule(..., 200, MILLISECONDS)`: дебаунс 200 мс. При массовом потоке транзакций предотвращает копирование 1000 записей и полный ресорт таблицы (`DefaultRowSorter.sort()` вызывает `getValueAt()` × 1000) на EDT при каждой транзакции. Без этого EDT занята `refreshTable()` и лагает при открытии Tool Window.
 - **CodeVision** — отдельный `AtomicBoolean` + `AppExecutorUtil.getAppScheduledExecutorService().schedule(..., 300, MILLISECONDS)`: дебаунс 300 мс. При массовом потоке транзакций предотвращает PSI-обход всех открытых редакторов на каждую транзакцию — не чаще одного раза в 300 мс.
