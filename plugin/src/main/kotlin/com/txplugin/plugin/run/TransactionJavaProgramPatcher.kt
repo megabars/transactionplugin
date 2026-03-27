@@ -60,14 +60,19 @@ class TransactionJavaProgramPatcher : JavaProgramPatcher() {
         }
 
         // 2. Extract from plugin JAR resources (dev / sandbox mode) — cached across launches.
-        // extractionAttempted flag ensures we don't retry on failure (avoids repeated temp file creation).
-        // Double-checked locking — correct because both fields are @Volatile
-        if (extractionAttempted) return extractedAgentJar
+        // Fast path: return cached file if it still exists.
+        // OS (macOS) may clean /var/folders/ temp files between IDE sessions, so we must re-extract
+        // if the cached file was deleted. We do NOT retry if the resource itself was missing (null).
+        val cached = extractedAgentJar
+        if (cached != null && cached.exists()) return cached
+
         return synchronized(Companion) {
-            if (!extractionAttempted) {
-                extractedAgentJar = extractFromResources()
-                extractionAttempted = true
-            }
+            val cachedLocked = extractedAgentJar
+            if (cachedLocked != null && cachedLocked.exists()) return@synchronized cachedLocked
+            // Don't retry if previous extraction failed due to missing resource
+            if (extractionAttempted && cachedLocked == null) return@synchronized null
+            extractedAgentJar = extractFromResources()
+            extractionAttempted = true
             extractedAgentJar
         }
     }

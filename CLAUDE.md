@@ -9,6 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 IntelliJ IDEA плагин для real-time мониторинга Spring Boot транзакций: перехватывает `@Transactional`-методы через Java Agent (Byte Buddy), собирает SQL + параметры, показывает статистику как Code Vision lens над методами и в Tool Window. Не требует изменений в коде приложения.
 
+**Область применения**: только декларативный `@Transactional` Spring (через `TransactionAspectSupport`). Программные альтернативы — `TransactionTemplate`, прямые вызовы `PlatformTransactionManager`, plain JDBC — **не перехватываются**. Совместим с IntelliJ IDEA Community и Ultimate 2023.3+, Java и Kotlin Spring Boot приложениями. Plugin ID: `com.github.megabars.transactionmonitor`.
+
 ## Архитектура
 
 Два Gradle-модуля:
@@ -131,7 +133,7 @@ Plugin (Kotlin):
 
 **Исключение тестовых конфигураций** (`TransactionJavaProgramPatcher`): `patchJavaParameters()` проверяет `configuration.type.id` и пропускает конфигурации с typeId `"JUnit"`, `"TestNG"`, `"KotlinTest"` — агент не нужен во время тестов и может мешать. Gradle/Maven тесты не затрагиваются, поскольку их конфигурации не являются `ModuleBasedConfiguration` и отсекаются ещё первой проверкой.
 
-**Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install, PluginId = `"com.github.megabars.transactionmonitor"`), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking — не извлекается заново при каждом запуске.
+**Поиск agent JAR** (`TransactionJavaProgramPatcher`): сначала `pluginPath/agent/transaction-agent.jar` (production install, PluginId = `"com.github.megabars.transactionmonitor"`), затем извлечение из ресурсов плагина во временный файл (sandbox/dev). Временный файл кэшируется в `companion object` через double-checked locking. Перед возвратом кэша проверяется `exists()` — macOS периодически чистит `/var/folders/`, и temp-файл может быть удалён ОС между запусками приложения. Если файл удалён — переизвлекаем. Если первое извлечение провалилось из-за отсутствия ресурса (`extractedAgentJar == null`) — повторных попыток нет. `Files.createTempFile` каждый раз генерирует новое имя, поэтому file locking на Windows не является проблемой при переизвлечении.
 
 **`LOG` в advice-классах должен быть `public`**: Byte Buddy `@Advice` инлайнит байткод advice-метода в целевой класс (`TransactionAspectSupport`). JVM затем проверяет права доступа от имени целевого класса — если поле `LOG` в `TransactionInstrumentation` package-private, возникает `IllegalAccessError`. Все статические поля/методы `TransactionInstrumentation`, к которым обращается advice-код, обязаны быть `public`.
 
