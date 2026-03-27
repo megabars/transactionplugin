@@ -4,6 +4,7 @@ import com.intellij.codeInsight.codeVision.*
 import com.intellij.codeInsight.codeVision.ui.model.ClickableTextCodeVisionEntry
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.*
@@ -53,6 +54,7 @@ class TransactionCodeVisionProvider : CodeVisionProvider<Unit> {
     override fun computeCodeVision(editor: Editor, uiData: Unit): CodeVisionState {
         if (!TransactionSettings.getInstance().showCodeVision) return CodeVisionState.READY_EMPTY
         val project = editor.project ?: return CodeVisionState.READY_EMPTY
+        if (DumbService.isDumb(project)) return CodeVisionState.NotReady
         val store = TransactionStore.getInstance()
 
         val lenses = ReadAction.compute<List<Pair<TextRange, CodeVisionEntry>>, Throwable> {
